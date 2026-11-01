@@ -211,6 +211,7 @@ function draw() {
   const v = S.view;
   // Until the book has loaded, say so rather than showing empty months.
   if (!S.demo && !S.loaded) { main.innerHTML = `<div class="empty"><p>Opening your family book…</p></div>`; return; }
+  main.dataset.tab = v; // lets styles.css size things per tab (not data-view: that marks the tab buttons)
   main.innerHTML = v === "stats" ? viewStats() : v === "budget" ? viewBudget() : v === "accounts" ? viewAccounts() : viewTrans();
   playAnims(main);
 }
@@ -485,13 +486,16 @@ function viewBudget() {
   const rows = CATS.expense.map(c => {
     const s = spent(c.k), l = lim[c.k] || 0;
     const pct = l ? Math.min(100, s / l * 100) : 0;
-    const foot = l ? `<span class="num">${peso(s)} spent</span><span class="${state(s, l)} num">${s > l ? peso(s - l) + " over" : peso(l - s) + " left"}</span>` : `<span class="num">${s ? peso(s) + " spent" : "No spending yet"}</span><span>No limit</span>`;
-    return `<div class="bud"><span class="ico" style="--c:${c.c}" aria-hidden="true">${c.e}</span><div class="bud-body">
-      <div class="bud-line"><span class="nm">${esc(c.n)}</span><label class="limit"><span>₱</span><input id="lim-${c.k}" data-lim="${c.k}" inputmode="numeric" value="${l || ""}" placeholder="No limit" aria-label="Monthly limit for ${esc(c.n)}"${editable ? "" : " disabled"}></label></div>
-      ${l ? `<div class="meter"><i style="width:${pct.toFixed(1)}%;--c:${barColor(s, l)}"></i></div>` : ""}
-      <div class="bud-foot">${foot}</div></div></div>`;
+    // One compact row: icon | name, "spent · left" and the bar | limit box (centred on the right).
+    const foot = l
+      ? `<span class="num">${peso(s)} spent</span> · <span class="${state(s, l)} num">${s > l ? peso(s - l) + " over" : peso(l - s) + " left"}</span>`
+      : `<span class="num">${s ? peso(s) + " spent" : "No spending yet"}</span> · No limit`;
+    return `<div class="bud"><span class="ico" style="--c:${c.c}" aria-hidden="true">${c.e}</span>
+      <div class="bud-body"><span class="nm">${esc(c.n)}</span><div class="bud-foot">${foot}</div>
+        ${l ? `<div class="meter"><i style="width:${pct.toFixed(1)}%;--c:${barColor(s, l)}"></i></div>` : ""}</div>
+      <label class="limit"><span>₱</span><input id="lim-${c.k}" data-lim="${c.k}" inputmode="numeric" value="${l || ""}" placeholder="No limit" aria-label="Monthly limit for ${esc(c.n)}"${editable ? "" : " disabled"}></label></div>`;
   }).join("");
-  return head + `<section class="card">${rows}</section>` + recurringSection() + reminderSection();
+  return head + `<section class="card"><div class="row-list">${rows}</div></section>` + recurringSection() + reminderSection();
 }
 
 // ---------- Bill reminders ----------
@@ -563,7 +567,7 @@ function recurringSection() {
       <span class="num ${r.type === "income" ? "inc" : "exp"}">${peso(r.amount)}</span></button>`;
   }).join("");
   return `<section class="card"><span class="label">Recurring every month</span>
-    ${rows || `<p class="meta">Rent, Meralco, internet or a salary can add themselves every month. When you log one, tick <b>Repeat every month</b>.</p>`}
+    ${rows ? `<div class="row-list">${rows}</div>` : `<p class="meta">Rent, Meralco, internet or a salary can add themselves every month. When you log one, tick <b>Repeat every month</b>.</p>`}
     ${rows ? `<p class="meta">Each is added automatically on its day. ${S.canWrite ? "Tap one to change its amount or day, or to stop it." : ""}</p>` : ""}</section>`;
 }
 

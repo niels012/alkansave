@@ -429,3 +429,26 @@ button.rec[disabled] { cursor: default; color: inherit; }
   /* Category grid in the entry form drops open each time it's shown */
   #f-cats:not([hidden]) { animation: drop-in .2s ease; }
 }
+
+/* Budget tab: rows use the same sizes as the Transactions list (14px names, 12px details, 13px amounts);
+   cards and headings stay as on the other tabs. */
+.row-list { display: block; } /* rows sit flush; the card's 12px gap would double the spacing between them */
+#main[data-tab="budget"] .bud-total .big { font-size: 18px; }
+#main[data-tab="budget"] .bud-total .bar-row .num:not(.big) { font-size: 13px; }
+#main[data-tab="budget"] .ico { width: 32px; height: 32px; border-radius: 10px; font-size: 15px; }
+#main[data-tab="budget"] .bud { grid-template-columns: 32px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 7px 0; }
+#main[data-tab="budget"] .bud:first-child { border-top: 0; padding-top: 0; }
+#main[data-tab="budget"] .bud:last-child { padding-bottom: 0; }
+#main[data-tab="budget"] .bud-body { display: grid; gap: 1px; min-width: 0; }
+#main[data-tab="budget"] .bud-body .nm { font-size: 14px; font-weight: 600; }
+#main[data-tab="budget"] .bud-body .meter { margin-top: 4px; height: 6px; }
+#main[data-tab="budget"] .bud-foot { display: block; font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#main[data-tab="budget"] .limit { padding: 0 7px; border-radius: 7px; }
+#main[data-tab="budget"] .limit input { width: 72px; padding: 4px 0; font-size: 13px; }
+#main[data-tab="budget"] .limit span { font-size: 12px; }
+#main[data-tab="budget"] .rec { grid-template-columns: 32px minmax(0, 1fr) auto; gap: 10px; padding: 7px 0; }
+#main[data-tab="budget"] .rec:first-child { border-top: 0; padding-top: 0; }
+#main[data-tab="budget"] .rec-main { gap: 1px; }
+#main[data-tab="budget"] .rec-main .nm { font-size: 14px; }
+#main[data-tab="budget"] .rec-main .sub { font-size: 12px; }
+#main[data-tab="budget"] .rec .num { font-size: 13px; }
