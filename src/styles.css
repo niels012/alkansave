@@ -282,6 +282,8 @@ main.wrap { padding-block: 12px calc(var(--nav-h) + 96px + env(safe-area-inset-b
 }
 
 /* Search and filters */
+/* Cards under the search box sit in #results; space them like the rest of the screen. */
+#results { display: grid; gap: 14px; min-width: 0; }
 .search { display: flex; align-items: center; gap: 8px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 0 12px; }
 .search:focus-within { outline: 2px solid var(--accent); outline-offset: -1px; }
 .search svg { width: 18px; height: 18px; flex: none; fill: none; stroke: var(--muted); stroke-width: 2; stroke-linecap: round; }

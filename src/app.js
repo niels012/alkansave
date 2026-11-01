@@ -332,7 +332,8 @@ function transBody() {
     [...mt].sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt).forEach(t => (byDay[t.date] = byDay[t.date] || []).push(t));
     body = Object.keys(byDay).map(d => dayGroup(d, byDay[d])).join("");
   }
-  return familyCard() + body;
+  // The day's entries come first; the per-person summary sits below them.
+  return body + familyCard();
 }
 
 function calendar(mt) {
