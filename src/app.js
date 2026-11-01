@@ -622,6 +622,19 @@ function fillAccounts() {
 function renderCats(type, sel) {
   const list = CATS[type] || [];
   $("#f-cats").innerHTML = list.map(c => `<input type="radio" name="cat" id="cat-${c.k}" value="${c.k}"${c.k === sel ? " checked" : ""}><label for="cat-${c.k}" style="--c:${c.c}"><span class="e" aria-hidden="true">${c.e}</span>${esc(c.n)}</label>`).join("");
+  updateCatToggle();
+  showCats(false);
+}
+// The category grid stays folded behind one "Category" field until it's tapped; picking one folds it again.
+function updateCatToggle() {
+  const sel = sheet.querySelector('input[name="cat"]:checked');
+  const c = sel && (CATS[sheet.dataset.type] || []).find(x => x.k === sel.value);
+  $("#catToggle").innerHTML = (c ? `<span class="pick"><span class="e" aria-hidden="true">${c.e}</span>${esc(c.n)}</span>` : `<span class="ph">Choose a category</span>`)
+    + `<svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>`;
+}
+function showCats(open) {
+  $("#f-cats").hidden = !open;
+  $("#catToggle").setAttribute("aria-expanded", String(open));
 }
 function setType(type, sel) {
   sheet.dataset.type = type;
@@ -630,7 +643,7 @@ function setType(type, sel) {
   $("#catWrap").hidden = tr; $("#toWrap").hidden = !tr;
   $("#acctLabel").textContent = tr ? "From account" : "Account";
   $("#repeatWrap").hidden = tr || !!S.editing || !!S.editingRec || S.demo;
-  if (!tr) renderCats(type, sel || (CATS[type][0] && CATS[type][0].k));
+  if (!tr) renderCats(type, sel); // no default: a new entry starts with "Choose a category"
 }
 // The sheet edits either an entry (date) or a recurring item (day of the month; no transfers).
 function setSheetMode(rec) {
@@ -656,7 +669,9 @@ function openSheet(t) {
   if (t) { meta.hidden = false; meta.textContent = `Logged by ${who(t.by).name}${t.createdAt ? " · " + ago(t.createdAt) : ""}${t.updatedAt && t.updatedBy ? ` · last edited by ${who(t.updatedBy).name}` : ""}`; }
   else meta.hidden = true;
   $("#scrim").hidden = false;
-  setTimeout(() => $("#f-amount").focus(), 30);
+  // New entry: put the cursor in the amount right away, still inside the tap, so iPhones show the
+  // number keyboard too (they ignore focus that happens after a delay). Editing doesn't pop it up.
+  if (!t) $("#f-amount").focus();
 }
 function openRecSheet(r) {
   S.editing = null; S.editingRec = r.id; S.delArmed = false;
@@ -673,14 +688,13 @@ function openRecSheet(r) {
   meta.hidden = false;
   meta.textContent = `Set up by ${who(r.createdBy).name} · next added ${recNext(r)}. Changes apply from then on; entries already added stay as they are.`;
   $("#scrim").hidden = false;
-  setTimeout(() => $("#f-amount").focus(), 30);
 }
 function closeSheet() { $("#scrim").hidden = true; S.editing = null; S.editingRec = null; $("#fab").focus(); }
 
 async function saveRecurringEdit(type, amount, catEl) {
   const err = $("#f-err");
   if (!(amount > 0) || amount > 1e9) { err.textContent = "Enter an amount greater than ₱0."; $("#f-amount").focus(); return; }
-  if (!catEl) { err.textContent = "Pick a category."; return; }
+  if (!catEl) { err.textContent = "Pick a category."; showCats(true); return; }
   const r = S.recurring.find(x => x.id === S.editingRec);
   if (!r) { closeSheet(); return; }
   const next = recData({
@@ -696,7 +710,10 @@ async function saveRecurringEdit(type, amount, catEl) {
   finally { btn.disabled = false; }
 }
 
-sheet.addEventListener("change", e => { if (e.target.name === "type") setType(e.target.value); });
+sheet.addEventListener("change", e => {
+  if (e.target.name === "type") setType(e.target.value);
+  else if (e.target.name === "cat") { updateCatToggle(); showCats(false); $("#f-err").textContent = ""; }
+});
 sheet.addEventListener("submit", async e => {
   e.preventDefault();
   const err = $("#f-err");
@@ -709,7 +726,7 @@ sheet.addEventListener("submit", async e => {
   if (!(amount > 0) || amount > 1e9) { err.textContent = "Enter an amount greater than ₱0."; $("#f-amount").focus(); return; }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { err.textContent = "Pick a date for this entry."; return; }
   if (type === "transfer" && acct === to) { err.textContent = "Choose two different accounts for a transfer."; return; }
-  if (type !== "transfer" && !catEl) { err.textContent = "Pick a category."; return; }
+  if (type !== "transfer" && !catEl) { err.textContent = "Pick a category."; showCats(true); return; }
   const prev = S.editing ? txAll().find(t => t.id === S.editing) : null;
   const me = S.demo ? "demo-a" : S.meId;
   const data = {
@@ -850,17 +867,35 @@ async function leaveBook() {
 }
 
 // ---------- Events ----------
+// Closes the filter panel by removing just the panel (no full redraw), so a tap into the search box
+// keeps its cursor. keepPlace: scroll up by the panel's height so the list doesn't jump under your finger.
+function closeFilters(keepPlace) {
+  S.showFilters = false;
+  const panel = document.querySelector(".filters");
+  if (panel) {
+    const h = panel.offsetHeight + parseFloat(getComputedStyle($("#main")).rowGap || 0);
+    panel.remove();
+    if (keepPlace) window.scrollBy(0, -h);
+  }
+  const btn = document.querySelector('[data-act="filters"]');
+  if (btn) { btn.setAttribute("aria-pressed", "false"); btn.setAttribute("aria-expanded", "false"); }
+}
+
+// Scrolling the list closes the filter panel, except while one of its dropdowns is in use
+// (iPhones scroll the page a little when a dropdown opens).
+let filterScrollFrom = null;
+addEventListener("scroll", () => {
+  if (!S.showFilters) { filterScrollFrom = null; return; }
+  if (filterScrollFrom === null) { filterScrollFrom = scrollY; return; }
+  const active = document.activeElement;
+  if (active && active.closest && active.closest(".filters")) return;
+  if (scrollY - filterScrollFrom > 12) { filterScrollFrom = null; closeFilters(true); }
+}, { passive: true });
+
 document.addEventListener("click", e => {
   // A tap anywhere outside the open filter panel closes it (the Filter button toggles it itself).
   // The tap still does whatever it was aimed at, e.g. opening an entry.
-  // Only the panel is removed (no full redraw), so a tap into the search box keeps its cursor.
-  if (S.showFilters && !e.target.closest(".filters") && !e.target.closest('[data-act="filters"]')) {
-    S.showFilters = false;
-    const panel = document.querySelector(".filters");
-    if (panel) panel.remove();
-    const btn = document.querySelector('[data-act="filters"]');
-    if (btn) { btn.setAttribute("aria-pressed", "false"); btn.setAttribute("aria-expanded", "false"); }
-  }
+  if (S.showFilters && !e.target.closest(".filters") && !e.target.closest('[data-act="filters"]')) closeFilters(false);
   const v = e.target.closest("[data-view]");
   if (v) { S.view = v.dataset.view; S.armed = ""; if (!S.q) S.searchOpen = false; try { localStorage.setItem("alkansave.view", S.view); } catch {} draw(); window.scrollTo(0, 0); return; }
   const a = e.target.closest("[data-act]"); if (!a) return;
@@ -869,6 +904,7 @@ document.addEventListener("click", e => {
   else if (act === "add") openSheet(null);
   else if (act === "edit") { const t = txAll().find(x => x.id === a.dataset.id); if (t) openSheet(t); }
   else if (act === "close") closeSheet();
+  else if (act === "cat-toggle") showCats($("#f-cats").hidden);
   else if (act === "del") deleteEntry();
   else if (act === "day") { S.selDay = a.dataset.date; draw(); }
   else if (act === "stat") { S.statType = a.dataset.type; draw(); }
@@ -883,7 +919,7 @@ document.addEventListener("click", e => {
   else if (act === "rec-edit") { const r = S.recurring.find(x => x.id === a.dataset.id); if (r) openRecSheet(r); }
   else if (act === "member-remove") removeMember(a.dataset.id);
   else if (act === "leave") leaveBook();
-  else if (act === "filters") { S.showFilters = !S.showFilters; draw(); }
+  else if (act === "filters") { S.showFilters = !S.showFilters; filterScrollFrom = S.showFilters ? scrollY : null; draw(); }
   // Focus inside the tap itself so phones bring up the keyboard right away.
   else if (act === "search-open") { S.searchOpen = true; draw(); const q = $("#q"); if (q) q.focus(); }
   else if (act === "search-close") { S.q = ""; S.searchOpen = false; draw(); }

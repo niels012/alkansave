@@ -107,7 +107,8 @@ main.wrap { padding-block: 12px calc(var(--nav-h) + 96px + env(safe-area-inset-b
 .day-w .wd.sun { background: var(--expense); color: #fff; }
 .day-w .wd.sat { background: color-mix(in srgb, var(--accent) 16%, var(--surface)); color: var(--accent); }
 .day-w .my { font-size: 12px; color: var(--muted); }
-.day-h .num { font-size: 13px; font-weight: 600; text-align: right; }
+.day-h .num { font-size: 14px; font-weight: 700; text-align: right; }
+.day-h .num.exp { margin-left: 12px; } /* more room between the day's income and expense totals */
 .day-h .day-n { font-size: 22px; font-weight: 700; text-align: left; }
 .tx { width: 100%; border: 0; background: transparent; display: grid; grid-template-columns: 84px minmax(0, 1fr) auto; gap: 10px; align-items: center;
   padding: 8px var(--pr) 8px var(--pl); text-align: left; border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
@@ -120,7 +121,7 @@ main.wrap { padding-block: 12px calc(var(--nav-h) + 96px + env(safe-area-inset-b
 .tx-main { display: grid; min-width: 0; gap: 0; }
 .tx-title { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tx-sub { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tx-amt { font-weight: 600; font-size: 14px; text-align: right; }
+.tx-amt { font-weight: 600; font-size: 13px; text-align: right; }
 .ico { width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center; font-size: 18px; background: color-mix(in srgb, var(--c, var(--muted)) 20%, var(--surface)); }
 
 /* Empty state */
@@ -323,3 +324,12 @@ button.rec[disabled] { cursor: default; color: inherit; }
 
 /* Filter sits in the Daily | Calendar pill; accent text when filters are open or on */
 .seg .seg-filter[aria-pressed="true"], .seg .seg-filter.has { color: var(--accent); }
+
+/* Entry form: "Category" field that opens the category grid */
+.cat-toggle { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 8px; border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 9px 10px; text-align: left; font-size: 15px; }
+.cat-toggle .pick { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; }
+.cat-toggle .pick .e { font-size: 18px; }
+.cat-toggle .ph { color: var(--muted); }
+.cat-toggle .chev { width: 18px; height: 18px; flex: none; fill: none; stroke: var(--muted); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: transform .15s; }
+.cat-toggle[aria-expanded="true"] { border-color: var(--accent); }
+.cat-toggle[aria-expanded="true"] .chev { transform: rotate(180deg); }
