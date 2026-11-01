@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="description" content="AlkanSave: a shared family budget tracker in pesos.">
+<title>AlkanSave</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Figtree:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="/src/styles.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <div class="brand-row">
+      <div class="brand">AlkanSave <small>family budget</small></div>
+      <span class="live" id="live" data-s="connecting"><i></i><span>Connecting…</span></span>
+    </div>
+    <div class="month-row">
+      <button class="icon-btn" type="button" data-act="prev" aria-label="Previous month">‹</button>
+      <h1 id="monthLabel"></h1>
+      <button class="icon-btn" type="button" data-act="next" aria-label="Next month">›</button>
+    </div>
+    <div class="sum" id="sum"></div>
+  </div>
+</header>
+<div class="wrap" id="bannerWrap"></div>
+<main class="wrap" id="main"></main>
+
+<button class="fab" id="fab" type="button" data-act="add" aria-label="Add an entry">+</button>
+
+<nav class="tabs" aria-label="Views">
+  <div class="wrap">
+    <button class="tab" type="button" data-view="daily"><svg viewBox="0 0 24 24"><path d="M5 4h14v16H5z"/><path d="M8 9h8M8 13h8M8 17h5"/></svg>Trans.</button>
+    <button class="tab" type="button" data-view="stats"><svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9h-9z"/><path d="M15 3.5A9 9 0 0 1 20.5 9H15z"/></svg>Stats</button>
+    <button class="tab" type="button" data-view="budget"><svg viewBox="0 0 24 24"><path d="M4 7h16v12H4z"/><path d="M4 7l2-3h12l2 3"/><path d="M16 13h2"/></svg>Budget</button>
+    <button class="tab" type="button" data-view="accounts"><svg viewBox="0 0 24 24"><path d="M3 10l9-6 9 6"/><path d="M5 10v8M9.5 10v8M14.5 10v8M19 10v8M3 20h18"/></svg>Accounts</button>
+  </div>
+</nav>
+
+<div class="scrim" id="scrim" hidden>
+  <form class="sheet" id="sheet" data-type="expense" novalidate aria-labelledby="sheetTitle">
+    <div class="sheet-h">
+      <h2 id="sheetTitle">New entry</h2>
+      <button class="icon-btn" type="button" data-act="close" aria-label="Close">×</button>
+    </div>
+    <div class="seg" role="radiogroup" aria-label="Entry type">
+      <input type="radio" name="type" id="t-expense" value="expense" checked><label for="t-expense">Expense</label>
+      <input type="radio" name="type" id="t-income" value="income"><label for="t-income">Income</label>
+      <input type="radio" name="type" id="t-transfer" value="transfer"><label for="t-transfer">Transfer</label>
+    </div>
+    <label class="amount-field" for="f-amount"><span>₱</span><input id="f-amount" inputmode="decimal" autocomplete="off" placeholder="0" aria-label="Amount in pesos"></label>
+    <div class="row2">
+      <label class="field"><span>Date</span><input type="date" id="f-date" required></label>
+      <label class="field"><span id="acctLabel">Account</span><select id="f-acct"></select></label>
+    </div>
+    <label class="field" id="toWrap" hidden><span>To account</span><select id="f-to"></select></label>
+    <div class="field" id="catWrap"><span>Category</span><div class="cats" id="f-cats"></div></div>
+    <label class="field"><span>Note</span><input id="f-note" maxlength="120" placeholder="e.g. Palengke run, Meralco bill"></label>
+    <p class="meta" id="f-meta" hidden></p>
+    <p class="err" id="f-err" role="alert"></p>
+    <div class="actions">
+      <button class="btn danger" type="button" id="f-del" data-act="del" hidden>Delete</button>
+      <div class="right">
+        <button class="btn" type="button" data-act="close">Cancel</button>
+        <button class="btn primary" type="submit" id="f-save">Save</button>
+      </div>
+    </div>
+  </form>
+</div>
+
+<script type="module" src="/src/app.js"></script>
+</body>
+</html>
