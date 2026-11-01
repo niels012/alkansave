@@ -6,9 +6,16 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:rules": "firebase emulators:exec --only firestore \"node --test tests/rules.test.js\"",
+    "deploy:rules": "firebase deploy --only firestore:rules,firestore:indexes"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^6.0.0",
+    "firebase-tools": "^15.34.2",
     "vite": "^8.3.5"
+  },
+  "dependencies": {
+    "firebase": "^13.1.0"
   }
 }

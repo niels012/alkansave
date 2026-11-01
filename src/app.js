@@ -1,4 +1,5 @@
 import { connect } from "./data/index.js";
+import { leaveDeviceOnly } from "./auth.js";
 
 // ---------- Reference data ----------
 const CATS = {
@@ -54,7 +55,7 @@ const S = {
   db: null, user: null, meId: null, isOwner: false, canWrite: true,
   tx: [], budgets: {}, loaded: false, live: "connecting", profiles: {},
   demo: false, demoTx: [], demoBudgets: {}, local: false,
-  editing: null, delArmed: false
+  editing: null, delArmed: false, notice: "", canSignIn: false
 };
 try { const h = location.hash.slice(1); if (VIEWS.includes(h)) S.view = h; } catch {}
 try { const v = localStorage.getItem("alkansave.view"); if (!location.hash && VIEWS.includes(v)) S.view = v; } catch {}
@@ -175,11 +176,12 @@ function drawChrome() {
   const live = $("#live");
   const ls = S.demo ? "preview" : S.local ? "local" : S.live;
   live.dataset.s = ls;
-  live.lastElementChild.textContent = { live: "Live · synced", saving: "Saving…", connecting: "Connecting…", error: "Sync paused", preview: "Sample data", local: "Saved on this device" }[ls] || "Connecting…";
+  live.lastElementChild.textContent = { live: "Live · synced", saving: "Saving…", connecting: "Connecting…", error: "Sync paused", preview: "Sample data", local: "Saved on this device", offline: "Offline · saved on phone" }[ls] || "Connecting…";
 
   let b = "";
-  if (S.demo) b = `<div class="banner"><span>You're looking at sample data. Nothing you add here is saved.</span><button type="button" data-act="exit-demo">Back to our book</button></div>`;
-  else if (!S.canWrite) b = `<div class="banner warn"><span>View only. Ask the owner to share this page with you as an Editor so you can log entries.</span></div>`;
+  if (S.notice) b = `<div class="banner"><span class="notice">${esc(S.notice)}</span></div>`;
+  else if (S.demo) b = `<div class="banner"><span>You're looking at sample data. Nothing you add here is saved.</span><button type="button" data-act="exit-demo">Back to our book</button></div>`;
+  else if (!S.canWrite) b = `<div class="banner warn"><span>View only. Ask the book's owner to make you an Editor so you can log entries.</span></div>`;
   $("#bannerWrap").innerHTML = b;
 
   document.querySelectorAll(".tab").forEach(t => {
@@ -201,7 +203,8 @@ function familyCard() {
     const verb = t.updatedAt ? "edited" : "added";
     return `<div><b>${esc(who(actor).name)}</b> ${verb} ${peso(t.amount)} ${esc(c.n.toLowerCase())} · ${ago(t.updatedAt || t.createdAt)}</div>`;
   }).join("");
-  const hint = (!S.demo && S.isOwner) ? `<div class="hint">To add your family, open this page's Share menu and invite them by email as <b>Editor</b>. They log in on their own phone and see every entry live.</div>` : "";
+  const alone = S.user && S.user.members().length <= 1;
+  const hint = (!S.demo && S.isOwner && alone) ? `<div class="hint bar-row"><span>Add your family so they can log entries from their own phones.</span><button class="btn" type="button" data-act="invite">Invite family</button></div>` : "";
   return `<section class="family" aria-label="Family"><div class="family-h"><span class="label">Spent by each of you · ${esc(monthLabel(S.month))}</span></div><div class="people">${people}</div>${act ? `<div class="activity">${act}</div>` : ""}${hint}</section>`;
 }
 
@@ -335,7 +338,23 @@ function viewAccounts() {
   const liab = rows.filter(r => r.b < 0).reduce((s, r) => s + r.b, 0);
   return `<section class="card"><div class="acct-sum"><div><span>Assets</span><b class="num inc">${peso(assets)}</b></div><div><span>Owed</span><b class="num exp">${peso(-liab)}</b></div><div><span>Net</span><b class="num">${peso(assets + liab)}</b></div></div></section>
     <section class="card"><span class="label">Balances from every entry logged</span>${rows.map(r => `<div class="acct"><span class="ico" style="--c:${r.c}" aria-hidden="true">${r.e}</span><div><div class="nm">${esc(r.n)}</div><div class="sub">${esc(r.sub)}</div></div><span class="num ${r.b < 0 ? "exp" : r.b > 0 ? "inc" : ""}">${peso(r.b)}</span></div>`).join("")}</section>
-    <p class="meta">Balances start at ₱0 in this prototype. Log an "Other income" entry to set an account's starting amount.</p>`;
+    <p class="meta">Balances start at ₱0 in this prototype. Log an "Other income" entry to set an account's starting amount.</p>` + familySection();
+}
+
+function familySection() {
+  if (S.demo) return "";
+  if (!S.user) {
+    return S.canSignIn ? `<section class="card"><span class="label">Family</span>
+      <p class="meta">Entries are saved on this phone only. Sign in to share one book with your family, live on each of your phones.</p>
+      <div><button class="btn primary" type="button" data-act="signin">Sign in to share with family</button></div></section>` : "";
+  }
+  const roleName = { owner: "Owner", editor: "Editor", viewer: "View only" };
+  const order = { owner: 0, editor: 1, viewer: 2 };
+  const rows = S.user.members().sort((a, b) => (order[a.role] ?? 3) - (order[b.role] ?? 3)).map(m =>
+    `<div class="member">${avatar(m.id)}<span class="nm">${esc(who(m.id).name)}</span><span class="meta">${roleName[m.role] || ""}</span></div>`).join("");
+  return `<section class="card"><span class="label">Family · ${esc(S.user.household().name)}</span>${rows}
+    ${S.isOwner ? `<div><button class="btn primary" type="button" data-act="invite">Invite family</button></div>` : ""}
+    <div class="bar-row"><span class="meta">Signed in as ${esc(S.user.email)}</span><button class="btn" type="button" data-act="signout">Sign out</button></div></section>`;
 }
 
 // ---------- Entry sheet ----------
@@ -424,9 +443,8 @@ async function writeWithRetry(fn) {
 }
 function writeError(x) {
   const code = x && x.code;
-  if (code === "invalid_argument" || code === "not_granted") { S.canWrite = false; drawChrome(); return "This page is view-only for you. Ask the owner to share it with you as an Editor."; }
-  if (code === "quota_exceeded") return "The family book is full. Delete some old entries, then try again.";
-  if (code === "resource_exhausted") return "Too many saves at once. Wait a moment and try again.";
+  if (code === "permission-denied") { S.canWrite = false; drawChrome(); return "This book is view-only for you. Ask the owner to make you an Editor."; }
+  if (code === "resource-exhausted") return "Too many saves at once. Wait a moment and try again.";
   return "Couldn't save just now. Check your connection and try again.";
 }
 
@@ -465,7 +483,28 @@ document.addEventListener("click", e => {
   else if (act === "stat") { S.statType = a.dataset.type; draw(); }
   else if (act === "demo") { buildDemo(); S.demo = true; paint(); }
   else if (act === "exit-demo") { S.demo = false; paint(); }
+  else if (act === "invite") invite();
+  else if (act === "signout") S.user.signOut();
+  else if (act === "signin") leaveDeviceOnly();
 });
+
+let noticeTimer = 0;
+function flash(msg, ms = 8000) {
+  S.notice = msg; drawChrome();
+  clearTimeout(noticeTimer);
+  noticeTimer = setTimeout(() => { S.notice = ""; drawChrome(); }, ms);
+}
+async function invite() {
+  let url;
+  try { url = await S.user.createInvite(); }
+  catch { flash("Couldn't create an invite link. Check your connection and try again."); return; }
+  if (navigator.share) {
+    try { await navigator.share({ title: "AlkanSave", text: "Join our family budget on AlkanSave", url }); return; }
+    catch (e) { if (e.name === "AbortError") return; }
+  }
+  try { await navigator.clipboard.writeText(url); flash("Invite link copied. Send it to your family; it works for 7 days."); }
+  catch { flash(`Send this invite link to your family (it works for 7 days): ${url}`, 60000); }
+}
 $("#scrim").addEventListener("click", e => { if (e.target.id === "scrim") closeSheet(); });
 document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("#scrim").hidden) closeSheet(); });
 $("#main").addEventListener("change", e => { const k = e.target.dataset && e.target.dataset.lim; if (k) { saveBudget(k, e.target.value); } });
@@ -476,9 +515,11 @@ $("#main").addEventListener("focusout", () => { setTimeout(() => { if (pending) 
 fillAccounts();
 draw();
 (async () => {
-  const { db, user, local } = await connect();
+  const { db, user, local, canSignIn } = await connect();
   S.user = user;
   S.local = local;
+  S.canSignIn = !!canSignIn;
+  if (user) user.onChange(paint);
   if (user) {
     const [id, cw, own] = await Promise.all([user.id(), user.can("data.write"), user.isOwner()]);
     S.meId = id; S.canWrite = cw !== false; S.isOwner = own;
@@ -489,7 +530,7 @@ draw();
   S.db.collection("tx").onSnapshot(snap => {
     S.tx = snap.docs.map(d => clean(d.id, d.data())).filter(Boolean);
     S.loaded = true;
-    S.live = snap.metadata.hasPendingWrites ? "saving" : "live";
+    S.live = snap.metadata.fromCache ? "offline" : snap.metadata.hasPendingWrites ? "saving" : "live";
     paint();
   }, () => { S.live = "error"; S.loaded = true; paint(); });
   S.db.doc("config/budgets").onSnapshot(snap => {
