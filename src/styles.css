@@ -79,41 +79,49 @@ main.wrap { padding-block: 12px calc(var(--nav-h) + 96px + env(safe-area-inset-b
 .bar-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 
 /* Family strip */
-.family { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 12px; display: grid; gap: 10px; }
+.family { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 10px 12px; display: grid; gap: 8px; }
 .family-h { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 .label { font-size: 11.5px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
-.people { display: flex; gap: 8px; flex-wrap: wrap; }
-.person { display: flex; align-items: center; gap: 8px; padding: 6px 12px 6px 6px; border-radius: 999px; background: var(--sunk); min-width: 0; }
-.person .nm { font-weight: 600; font-size: 13.5px; }
-.person .amt { font-size: 13px; color: var(--muted); }
+.family .label { font-size: 10.5px; }
+.people { display: flex; gap: 6px; flex-wrap: wrap; }
+.person { display: flex; align-items: center; gap: 6px; padding: 4px 10px 4px 4px; border-radius: 999px; background: var(--sunk); min-width: 0; }
+.person .nm { font-weight: 600; font-size: 12px; }
+.person .amt { font-size: 11.5px; color: var(--muted); }
+.person .av { width: 22px; height: 22px; font-size: 9.5px; }
 .av { width: 26px; height: 26px; border-radius: 50%; flex: none; display: grid; place-items: center; font-size: 11px; font-weight: 700; color: #fff; background: var(--c, var(--muted)); overflow: hidden; }
 .av img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .av.sm { width: 18px; height: 18px; font-size: 9px; }
-.activity { display: grid; gap: 4px; font-size: 13px; color: var(--muted); }
+.activity { display: grid; gap: 2px; font-size: 11.5px; color: var(--muted); }
 .activity b { color: var(--ink); font-weight: 600; }
-.hint { font-size: 13px; color: var(--muted); border-top: 1px dashed var(--line); padding-top: 10px; }
+.hint { font-size: 12px; color: var(--muted); border-top: 1px dashed var(--line); padding-top: 8px; }
 
-/* Day groups */
-.day { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
-.day-h { display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
-.day-n { font-family: var(--display); font-weight: 700; font-size: 24px; line-height: 1; }
-.day-w { display: grid; line-height: 1.15; }
-.day-w span:first-child { display: inline-block; font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 4px; background: var(--sunk); color: var(--muted); justify-self: start; }
-.day-w span:first-child.sun { background: color-mix(in srgb, var(--expense) 16%, var(--surface)); color: var(--expense); }
-.day-w span:first-child.sat { background: color-mix(in srgb, var(--accent) 16%, var(--surface)); color: var(--accent); }
-.day-w span:last-child { font-size: 12px; color: var(--muted); }
-.day-h .num { font-size: 13.5px; font-weight: 600; text-align: right; }
-.tx { width: 100%; border: 0; background: transparent; display: grid; grid-template-columns: 38px 1fr auto; gap: 12px; align-items: center; padding: 10px 14px; text-align: left; border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
+/* Day groups: flat, full-width sections with a thin gap between days (no cards) */
+.day { --pl: max(16px, env(safe-area-inset-left, 0px)); --pr: max(16px, env(safe-area-inset-right, 0px));
+  background: var(--surface); border-block: 1px solid var(--line); margin-left: calc(-1 * var(--pl)); margin-right: calc(-1 * var(--pr)); }
+#results > .day + .day { margin-top: -6px; } /* 8px between days instead of the 14px between cards */
+@media (min-width: 700px) { .day { margin-inline: 0; border: 1px solid var(--line); } }
+.day-h { display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 10px; padding: 8px var(--pr) 8px var(--pl); border-bottom: 1px solid var(--line); }
+.day-n { font-family: var(--display); font-weight: 700; font-size: 26px; line-height: 1; }
+.day-w { display: flex; align-items: center; gap: 8px; line-height: 1.15; }
+.day-w .wd { font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 5px; background: var(--sunk); color: var(--muted); }
+.day-w .wd.sun { background: var(--expense); color: #fff; }
+.day-w .wd.sat { background: color-mix(in srgb, var(--accent) 16%, var(--surface)); color: var(--accent); }
+.day-w .my { font-size: 12px; color: var(--muted); }
+.day-h .num { font-size: 13px; font-weight: 600; text-align: right; }
+.day-h .day-n { font-size: 22px; font-weight: 700; text-align: left; }
+.tx { width: 100%; border: 0; background: transparent; display: grid; grid-template-columns: 84px minmax(0, 1fr) auto; gap: 10px; align-items: center;
+  padding: 8px var(--pr) 8px var(--pl); text-align: left; border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
 .tx:first-of-type { border-top: 0; }
 .tx:hover { background: color-mix(in srgb, var(--sunk) 60%, transparent); }
 .tx[disabled] { cursor: default; }
+.tx-cat { display: flex; align-items: center; gap: 5px; min-width: 0; font-size: 12px; color: var(--muted); line-height: 1.2; }
+.tx-cat .e { font-size: 15px; flex: none; }
+.tx-cat .n { overflow-wrap: anywhere; }
+.tx-main { display: grid; min-width: 0; gap: 0; }
+.tx-title { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tx-sub { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tx-amt { font-weight: 600; font-size: 14px; text-align: right; }
 .ico { width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center; font-size: 18px; background: color-mix(in srgb, var(--c, var(--muted)) 20%, var(--surface)); }
-.tx-main { display: grid; min-width: 0; }
-.tx-cat { font-weight: 600; }
-.tx-sub { font-size: 13px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tx-right { display: grid; justify-items: end; gap: 3px; }
-.tx-right .num { font-weight: 700; font-size: 15px; }
-.tx-who { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; color: var(--muted); }
 
 /* Empty state */
 .empty { background: var(--surface); border: 1px dashed var(--line); border-radius: var(--r); padding: 28px 20px; text-align: center; display: grid; gap: 8px; justify-items: center; }
@@ -288,6 +296,14 @@ main.wrap { padding-block: 12px calc(var(--nav-h) + 96px + env(safe-area-inset-b
 .search:focus-within { outline: 2px solid var(--accent); outline-offset: -1px; }
 .search svg { width: 18px; height: 18px; flex: none; fill: none; stroke: var(--muted); stroke-width: 2; stroke-linecap: round; }
 .search input { flex: 1; min-width: 0; border: 0; background: transparent; padding: 11px 0; font-size: 16px; }
+.search .link { flex: none; font-size: 14px; }
+/* Collapsed search: a small button at the end of the Daily | Calendar | Filter row */
+.search-pill { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 6px 13px; font-size: 13.5px; font-weight: 600; color: var(--muted); }
+.search-pill svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; }
+.search-pill:hover { color: var(--ink); }
+/* Size the view pill to its words so it and the Search button fit on one line */
+.seg.view { grid-auto-columns: auto; }
+.seg.view button { padding: 6px 12px; }
 .search input:focus { outline: none; }
 .btn.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
 .filters { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 12px; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
@@ -304,3 +320,6 @@ button.rec[disabled] { cursor: default; color: inherit; }
 
 /* Editing a recurring item: no transfers */
 .sheet[data-mode="rec"] label[for="t-transfer"] { display: none; }
+
+/* Filter sits in the Daily | Calendar pill; accent text when filters are open or on */
+.seg .seg-filter[aria-pressed="true"], .seg .seg-filter.has { color: var(--accent); }

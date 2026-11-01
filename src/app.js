@@ -58,7 +58,7 @@ const S = {
   demo: false, demoTx: [], demoBudgets: {}, local: false,
   editing: null, delArmed: false, notice: "", canSignIn: false,
   recurring: [], recLoaded: false, starts: {}, armed: "",
-  editingRec: null, q: "", showFilters: false, f: { type: "", cat: "", who: "", acct: "", scope: "month" },
+  editingRec: null, q: "", searchOpen: false, showFilters: false, f: { type: "", cat: "", who: "", acct: "", scope: "month" },
   rem: "", remBusy: false
 };
 try { const h = location.hash.slice(1); if (VIEWS.includes(h)) S.view = h; } catch {}
@@ -240,41 +240,51 @@ function familyCard() {
   return `<section class="family" aria-label="Family"><div class="family-h"><span class="label">Spent by each of you · ${esc(monthLabel(S.month))}</span></div><div class="people">${people}</div>${act ? `<div class="activity">${act}</div>` : ""}${hint}</section>`;
 }
 
+// One entry: category on the left, note (or category) with account and person underneath, amount on the right.
 function txRow(t) {
   const c = catOf(t.type, t.cat);
-  const p = who(t.by);
-  const sub = t.type === "transfer" ? `${acctOf(t.acct).n} → ${acctOf(t.to).n}${t.note ? " · " + t.note : ""}` : `${t.note ? t.note + " · " : ""}${acctOf(t.acct).n}`;
+  const acct = t.type === "transfer" ? `${acctOf(t.acct).n} → ${acctOf(t.to).n}` : acctOf(t.acct).n;
   const cls = t.type === "income" ? "inc" : t.type === "expense" ? "exp" : "";
   const ro = !(S.demo || S.canWrite);
   return `<button class="tx" type="button" data-act="edit" data-id="${esc(t.id)}"${ro ? " disabled" : ""}>
-    <span class="ico" style="--c:${c.c}" aria-hidden="true">${c.e}</span>
-    <span class="tx-main"><span class="tx-cat">${esc(c.n)}</span><span class="tx-sub">${esc(sub)}</span></span>
-    <span class="tx-right"><span class="num ${cls}">${peso(t.amount)}</span><span class="tx-who">${avatar(t.by, true)}${esc(p.name)}</span></span>
+    <span class="tx-cat"><span class="e" aria-hidden="true">${c.e}</span><span class="n">${esc(c.n)}</span></span>
+    <span class="tx-main"><span class="tx-title">${esc(t.note || c.n)}</span><span class="tx-sub">${esc(acct)} · ${esc(who(t.by).name)}</span></span>
+    <span class="num tx-amt ${cls}">${peso(t.amount)}</span>
   </button>`;
 }
-function dayGroup(date, list) {
+// showMonth: add "11.2026" next to the weekday when a list can span months (all-time search).
+function dayGroup(date, list, showMonth) {
   const d = new Date(date + "T00:00:00");
   const wd = d.getDay();
   const inc = list.filter(t => t.type === "income").reduce((a, t) => a + t.amount, 0);
   const exp = list.filter(t => t.type === "expense").reduce((a, t) => a + t.amount, 0);
   return `<section class="day"><div class="day-h">
     <span class="day-n num">${d.getDate()}</span>
-    <span class="day-w"><span class="${wd === 0 ? "sun" : wd === 6 ? "sat" : ""}">${d.toLocaleDateString("en-PH", { weekday: "short" })}</span><span>${pad(d.getMonth() + 1)}.${d.getFullYear()}</span></span>
+    <span class="day-w"><span class="wd${wd === 0 ? " sun" : wd === 6 ? " sat" : ""}">${d.toLocaleDateString("en-PH", { weekday: "short" })}</span>${showMonth ? `<span class="my">${pad(d.getMonth() + 1)}.${d.getFullYear()}</span>` : ""}</span>
     <span class="num inc">${inc ? peso(inc) : ""}</span><span class="num exp">${exp ? peso(exp) : ""}</span>
   </div>${list.map(txRow).join("")}</section>`;
 }
 
 function viewTrans() {
   const n = filterCount();
-  const seg = `<div class="bar-row"><div class="seg" role="group" aria-label="Layout"><button type="button" data-view="daily" aria-pressed="${S.view === "daily"}">Daily</button><button type="button" data-view="calendar" aria-pressed="${S.view === "calendar"}">Calendar</button></div>
-    ${txAll().length ? `<button class="btn sm${n ? " on" : ""}" type="button" data-act="filters" aria-expanded="${S.showFilters}">Filter${n ? ` · ${n}` : ""}</button>` : ""}</div>`;
+  // One pill: Daily | Calendar | Filter. Filter opens the filter panel and shows how many filters are on.
+  const hasTx = txAll().length > 0;
+  const filter = hasTx
+    ? `<button type="button" class="seg-filter${n ? " has" : ""}" data-act="filters" aria-pressed="${S.showFilters}" aria-expanded="${S.showFilters}">Filter${n ? ` · ${n}` : ""}</button>` : "";
+  // Search is a small "Search" button until tapped (or while a search is typed), then a full-width box.
+  const searching = S.searchOpen || !!S.q;
+  const searchPill = hasTx && !searching
+    ? `<button type="button" class="search-pill" data-act="search-open">${SEARCH_ICON}Search</button>` : "";
+  const seg = `<div class="bar-row"><div class="seg view" role="group" aria-label="View"><button type="button" data-view="daily" aria-pressed="${S.view === "daily"}">Daily</button><button type="button" data-view="calendar" aria-pressed="${S.view === "calendar"}">Calendar</button>${filter}</div>${searchPill}</div>`;
   if (!S.demo && S.tx.length === 0) {
     return seg + `<div class="empty"><h2>Your family book is empty</h2><p>Tap + to log your first expense. ${S.local ? "Entries are saved on this device for now." : "Everyone in your family sees it on their phone right away."}</p><button class="btn" type="button" data-act="demo">Preview with sample data</button></div>` + familyCard();
   }
-  const search = `<label class="search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
-    <input type="search" id="q" value="${esc(S.q)}" placeholder="Search notes, categories, people, amounts" autocomplete="off" enterkeyhint="search" aria-label="Search entries"></label>`;
+  const search = searching ? `<div class="search">${SEARCH_ICON}
+    <input type="search" id="q" value="${esc(S.q)}" placeholder="Search notes, categories, people, amounts" autocomplete="off" enterkeyhint="search" aria-label="Search entries">
+    <button type="button" class="link" data-act="search-close">Cancel</button></div>` : "";
   return seg + search + (S.showFilters ? filterPanel() : "") + `<div id="results">${transBody()}</div>`;
 }
+const SEARCH_ICON = `<svg class="search-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>`;
 
 // ---------- Search and filters ----------
 const filterCount = () => ["type", "cat", "who", "acct"].filter(k => S.f[k]).length + (S.f.scope === "all" ? 1 : 0);
@@ -317,7 +327,7 @@ function searchResults() {
   list.forEach(t => (byDay[t.date] = byDay[t.date] || []).push(t));
   return `<section class="card result-sum"><span><b>${list.length}</b> ${list.length === 1 ? "entry" : "entries"} · ${esc(where)}</span>
     <span class="result-nums">${out ? `<span class="num exp">${peso(out)} spent</span>` : ""}${inc ? `<span class="num inc">${peso(inc)} in</span>` : ""}</span></section>`
-    + Object.keys(byDay).map(d => dayGroup(d, byDay[d])).join("");
+    + Object.keys(byDay).map(d => dayGroup(d, byDay[d], S.f.scope === "all")).join("");
 }
 
 // Everything under the search box; re-rendered on its own while typing so the keyboard stays open.
@@ -841,8 +851,18 @@ async function leaveBook() {
 
 // ---------- Events ----------
 document.addEventListener("click", e => {
+  // A tap anywhere outside the open filter panel closes it (the Filter button toggles it itself).
+  // The tap still does whatever it was aimed at, e.g. opening an entry.
+  // Only the panel is removed (no full redraw), so a tap into the search box keeps its cursor.
+  if (S.showFilters && !e.target.closest(".filters") && !e.target.closest('[data-act="filters"]')) {
+    S.showFilters = false;
+    const panel = document.querySelector(".filters");
+    if (panel) panel.remove();
+    const btn = document.querySelector('[data-act="filters"]');
+    if (btn) { btn.setAttribute("aria-pressed", "false"); btn.setAttribute("aria-expanded", "false"); }
+  }
   const v = e.target.closest("[data-view]");
-  if (v) { S.view = v.dataset.view; S.armed = ""; try { localStorage.setItem("alkansave.view", S.view); } catch {} draw(); window.scrollTo(0, 0); return; }
+  if (v) { S.view = v.dataset.view; S.armed = ""; if (!S.q) S.searchOpen = false; try { localStorage.setItem("alkansave.view", S.view); } catch {} draw(); window.scrollTo(0, 0); return; }
   const a = e.target.closest("[data-act]"); if (!a) return;
   const act = a.dataset.act;
   if (act === "prev" || act === "next") { S.month = shiftMonth(S.month, act === "prev" ? -1 : 1); draw(); }
@@ -864,6 +884,9 @@ document.addEventListener("click", e => {
   else if (act === "member-remove") removeMember(a.dataset.id);
   else if (act === "leave") leaveBook();
   else if (act === "filters") { S.showFilters = !S.showFilters; draw(); }
+  // Focus inside the tap itself so phones bring up the keyboard right away.
+  else if (act === "search-open") { S.searchOpen = true; draw(); const q = $("#q"); if (q) q.focus(); }
+  else if (act === "search-close") { S.q = ""; S.searchOpen = false; draw(); }
   else if (act === "scope") { S.f.scope = a.dataset.scope; draw(); }
   else if (act === "clear-filters") { S.q = ""; S.f = { type: "", cat: "", who: "", acct: "", scope: "month" }; draw(); }
   else if (act === "rem-on") turnOnReminders();
