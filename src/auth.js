@@ -11,8 +11,8 @@ import { firebase } from "./firebase.js";
 import { firestoreDb, toStored } from "./data/firestore.js";
 import { readLocal, archiveLocal } from "./data/local.js";
 import { isIOS, isStandalone } from "./device.js";
+import { DEVICE_ONLY, store, homeUrl } from "./prefs.js";
 
-const DEVICE_ONLY = "alkansave.deviceOnly";
 const EMAIL = "alkansave.email";
 const INVITE = "alkansave.invite";
 const HID = "alkansave.hid.";
@@ -20,12 +20,6 @@ const INVITE_DAYS = 7;
 const COLORS = ["#1F55D0", "#C2507F", "#2C8754", "#B3643A", "#8C69BD", "#2A9F9C", "#A26A0F"];
 
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-const store = {
-  get: k => { try { return localStorage.getItem(k); } catch { return null; } },
-  set: (k, v) => { try { localStorage.setItem(k, v); } catch {} },
-  del: k => { try { localStorage.removeItem(k); } catch {} }
-};
-const homeUrl = code => location.origin + "/" + (code ? `?invite=${encodeURIComponent(code)}` : "");
 const randomCode = () => Array.from(crypto.getRandomValues(new Uint8Array(16)), b => "abcdefghjkmnpqrstuvwxyz23456789"[b % 31]).join("");
 const colorFor = uid => COLORS[[...uid].reduce((a, c) => a + c.charCodeAt(0), 0) % COLORS.length];
 const profileOf = u => ({
@@ -43,9 +37,6 @@ function authMessage(e) {
   if (code === "auth/invalid-action-code" || code === "auth/expired-action-code") return "That sign-in link has expired or was already used. Send a new one.";
   return "Couldn't sign in. Try again.";
 }
-
-// Device-only mode is remembered so the sign-in screen doesn't return on every launch.
-export function leaveDeviceOnly() { store.del(DEVICE_ONLY); location.replace(homeUrl()); }
 
 // ---------- Screens ----------
 let gateEl = null;

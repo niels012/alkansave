@@ -17,7 +17,9 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Figtree:wght@400;500;600;700&display=swap">
+<!-- Fonts load without holding up the first paint; system fonts show until they arrive. -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Figtree:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Figtree:wght@400;500;600;700&display=swap"></noscript>
 <link rel="stylesheet" href="/src/styles.css">
 </head>
 <body>
@@ -63,7 +65,8 @@
     </div>
     <label class="amount-field" for="f-amount"><span>₱</span><input id="f-amount" inputmode="decimal" autocomplete="off" placeholder="0" aria-label="Amount in pesos"></label>
     <div class="row2">
-      <label class="field"><span>Date</span><input type="date" id="f-date" required></label>
+      <label class="field" id="dateWrap"><span>Date</span><input type="date" id="f-date" required></label>
+      <label class="field" id="dayWrap" hidden><span>Day each month</span><select id="f-day"></select></label>
       <label class="field"><span id="acctLabel">Account</span><select id="f-acct"></select></label>
     </div>
     <label class="field" id="toWrap" hidden><span>To account</span><select id="f-to"></select></label>

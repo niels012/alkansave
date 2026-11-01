@@ -33,7 +33,9 @@ AlkanSave is an installable web app (no app store needed):
 - **Android (Chrome):** tap **Install** on the banner in the app, or ⋮ → **Install app**.
 - **iPhone (Safari):** tap **Share** → **Add to Home Screen**. Sign in with Google inside the installed app.
 
-`public/manifest.webmanifest` describes the app; `public/sw.js` saves the app's files so it opens offline. Icons in `public/icons/` were made from `design/alkansave-logo.jpg`.
+`public/manifest.webmanifest` describes the app. `src/sw.js` saves the app's files so it opens offline; the build (`vite.config.js`) turns it into `dist/sw.js` with the list of built files and a new version on every change. Icons in `public/icons/` were made from `design/alkansave-logo.jpg`.
+
+The first screen loads only the app itself (~16 KB gzipped); the Firebase SDK (~200 KB) is fetched right after, from `src/data/index.js`.
 
 ## Security rules
 
@@ -51,9 +53,12 @@ CI runs the build and the rules tests on every pull request.
 index.html              page markup
 src/app.js              views, entry form, state
 src/styles.css          styles (light and dark)
-src/auth.js             sign-in, create/join a family book, invites
-src/firebase.js         Firebase setup from VITE_FIREBASE_* env vars
-src/data/index.js       picks the data source (connect())
+src/auth.js             sign-in, create/join a family book, invites (loaded on demand)
+src/config.js           VITE_FIREBASE_* env vars; whether sync is set up
+src/firebase.js         Firebase SDK setup (loaded on demand)
+src/prefs.js            small per-browser settings
+src/sw.js               service worker source (see vite.config.js)
+src/data/index.js       picks the data source (connect()) and loads Firebase
 src/data/firestore.js   Firestore with the same calls as local storage
 src/data/local.js       device-only storage
 firestore.rules         who can read and write what

@@ -1,5 +1,5 @@
 import { connect } from "./data/index.js";
-import { leaveDeviceOnly } from "./auth.js";
+import { leaveDeviceOnly } from "./prefs.js";
 import { isIOS, isStandalone } from "./device.js";
 
 // ---------- Reference data ----------
@@ -57,7 +57,8 @@ const S = {
   tx: [], budgets: {}, loaded: false, live: "connecting", profiles: {},
   demo: false, demoTx: [], demoBudgets: {}, local: false,
   editing: null, delArmed: false, notice: "", canSignIn: false,
-  recurring: [], recLoaded: false, starts: {}, armed: ""
+  recurring: [], recLoaded: false, starts: {}, armed: "",
+  editingRec: null, q: "", showFilters: false, f: { type: "", cat: "", who: "", acct: "", scope: "month" }
 };
 try { const h = location.hash.slice(1); if (VIEWS.includes(h)) S.view = h; } catch {}
 try { const v = localStorage.getItem("alkansave.view"); if (!location.hash && VIEWS.includes(v)) S.view = v; } catch {}
@@ -104,6 +105,9 @@ function cleanRec(id, d) {
 const recData = r => ({ type: r.type, amount: r.amount, cat: r.cat, acct: r.acct, note: r.note, day: r.day, lastPosted: r.lastPosted, active: r.active, createdBy: r.createdBy, createdAt: r.createdAt });
 const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
 const ordinal = n => n + (n % 100 >= 11 && n % 100 <= 13 ? "th" : ({ 1: "st", 2: "nd", 3: "rd" }[n % 10] || "th"));
+const recWhen = day => day >= 29 ? `${ordinal(day)} (or the last day)` : ordinal(day);
+// When a recurring item will next be added, as "Dec 1".
+const recNext = r => { const m = shiftMonth(r.lastPosted, 1); return new Date(`${m}-${pad(Math.min(r.day, daysIn(m)))}T00:00:00`).toLocaleDateString("en-PH", { month: "short", day: "numeric" }); };
 const parseAmount = raw => Math.round((parseFloat(String(raw).replace(/[₱,\s]/g, "")) || 0) * 100) / 100;
 
 // ---------- People ----------
@@ -184,6 +188,8 @@ function draw() {
   drawChrome();
   const main = $("#main");
   const v = S.view;
+  // Until the book has loaded, say so rather than showing empty months.
+  if (!S.demo && !S.loaded) { main.innerHTML = `<div class="empty"><p>Opening your family book…</p></div>`; return; }
   main.innerHTML = v === "stats" ? viewStats() : v === "budget" ? viewBudget() : v === "accounts" ? viewAccounts() : viewTrans();
 }
 function paint() { draw(); refreshProfiles(); }
@@ -256,11 +262,64 @@ function dayGroup(date, list) {
 }
 
 function viewTrans() {
-  const seg = `<div class="bar-row"><div class="seg" role="group" aria-label="Layout"><button type="button" data-view="daily" aria-pressed="${S.view === "daily"}">Daily</button><button type="button" data-view="calendar" aria-pressed="${S.view === "calendar"}">Calendar</button></div></div>`;
-  if (!S.demo && S.db && !S.loaded) return seg + `<div class="empty"><p>Opening your family book…</p></div>`;
-  if (!S.demo && S.db && S.loaded && S.tx.length === 0) {
+  const n = filterCount();
+  const seg = `<div class="bar-row"><div class="seg" role="group" aria-label="Layout"><button type="button" data-view="daily" aria-pressed="${S.view === "daily"}">Daily</button><button type="button" data-view="calendar" aria-pressed="${S.view === "calendar"}">Calendar</button></div>
+    ${txAll().length ? `<button class="btn sm${n ? " on" : ""}" type="button" data-act="filters" aria-expanded="${S.showFilters}">Filter${n ? ` · ${n}` : ""}</button>` : ""}</div>`;
+  if (!S.demo && S.tx.length === 0) {
     return seg + `<div class="empty"><h2>Your family book is empty</h2><p>Tap + to log your first expense. ${S.local ? "Entries are saved on this device for now." : "Everyone in your family sees it on their phone right away."}</p><button class="btn" type="button" data-act="demo">Preview with sample data</button></div>` + familyCard();
   }
+  const search = `<label class="search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+    <input type="search" id="q" value="${esc(S.q)}" placeholder="Search notes, categories, people, amounts" autocomplete="off" enterkeyhint="search" aria-label="Search entries"></label>`;
+  return seg + search + (S.showFilters ? filterPanel() : "") + `<div id="results">${transBody()}</div>`;
+}
+
+// ---------- Search and filters ----------
+const filterCount = () => ["type", "cat", "who", "acct"].filter(k => S.f[k]).length + (S.f.scope === "all" ? 1 : 0);
+const filtering = () => !!S.q.trim() || filterCount() > 0;
+
+function filteredTx() {
+  const F = S.f, q = S.q.trim().toLowerCase();
+  const text = t => [t.note, catOf(t.type, t.cat).n, acctOf(t.acct).n, t.to ? acctOf(t.to).n : "", who(t.by).name, String(t.amount), peso(t.amount), t.date]
+    .join(" ").toLowerCase();
+  return (F.scope === "all" ? txAll() : monthTx()).filter(t =>
+    (!F.type || t.type === F.type) && (!F.cat || t.cat === F.cat) && (!F.who || t.by === F.who)
+    && (!F.acct || t.acct === F.acct || t.to === F.acct) && (!q || text(t).includes(q)));
+}
+
+function filterPanel() {
+  const F = S.f;
+  const opt = (v, label, cur) => `<option value="${esc(v)}"${v === cur ? " selected" : ""}>${esc(label)}</option>`;
+  const people = [...new Set([S.demo ? "demo-a" : S.meId, ...txAll().map(t => t.by)].filter(Boolean))];
+  return `<div class="filters">
+    <label class="field"><span>Type</span><select data-filter="type">${opt("", "All types", F.type)}${opt("expense", "Expenses", F.type)}${opt("income", "Income", F.type)}${opt("transfer", "Transfers", F.type)}</select></label>
+    <label class="field"><span>Category</span><select data-filter="cat">${opt("", "All categories", F.cat)}<optgroup label="Expenses">${CATS.expense.map(c => opt(c.k, c.n, F.cat)).join("")}</optgroup><optgroup label="Income">${CATS.income.map(c => opt(c.k, c.n, F.cat)).join("")}</optgroup></select></label>
+    <label class="field"><span>Person</span><select data-filter="who">${opt("", "Everyone", F.who)}${people.map(id => opt(id, who(id).name, F.who)).join("")}</select></label>
+    <label class="field"><span>Account</span><select data-filter="acct">${opt("", "All accounts", F.acct)}${ACCOUNTS.map(a => opt(a.k, a.n, F.acct)).join("")}</select></label>
+    <div class="filters-foot"><div class="seg" role="group" aria-label="Period"><button type="button" data-act="scope" data-scope="month" aria-pressed="${F.scope === "month"}">${esc(monthLabel(S.month))}</button><button type="button" data-act="scope" data-scope="all" aria-pressed="${F.scope === "all"}">All time</button></div>
+      ${filtering() ? `<button class="link" type="button" data-act="clear-filters">Clear all</button>` : ""}</div>
+  </div>`;
+}
+
+function searchResults() {
+  const list = filteredTx().sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt);
+  const where = S.f.scope === "all" ? "all time" : monthLabel(S.month);
+  const q = S.q.trim();
+  if (!list.length) {
+    return `<div class="empty"><h2>No matching entries</h2><p>Nothing in ${esc(where)} matches ${q ? `“${esc(q)}”` : "these filters"}.</p>
+      ${S.f.scope === "month" ? `<button class="btn" type="button" data-act="scope" data-scope="all">Search all time</button>` : ""}</div>`;
+  }
+  const out = list.filter(t => t.type === "expense").reduce((a, t) => a + t.amount, 0);
+  const inc = list.filter(t => t.type === "income").reduce((a, t) => a + t.amount, 0);
+  const byDay = {};
+  list.forEach(t => (byDay[t.date] = byDay[t.date] || []).push(t));
+  return `<section class="card result-sum"><span><b>${list.length}</b> ${list.length === 1 ? "entry" : "entries"} · ${esc(where)}</span>
+    <span class="result-nums">${out ? `<span class="num exp">${peso(out)} spent</span>` : ""}${inc ? `<span class="num inc">${peso(inc)} in</span>` : ""}</span></section>`
+    + Object.keys(byDay).map(d => dayGroup(d, byDay[d])).join("");
+}
+
+// Everything under the search box; re-rendered on its own while typing so the keyboard stays open.
+function transBody() {
+  if (filtering()) return searchResults();
   const mt = monthTx();
   let body;
   if (S.view === "calendar") body = calendar(mt);
@@ -270,7 +329,7 @@ function viewTrans() {
     [...mt].sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt).forEach(t => (byDay[t.date] = byDay[t.date] || []).push(t));
     body = Object.keys(byDay).map(d => dayGroup(d, byDay[d])).join("");
   }
-  return seg + familyCard() + body;
+  return familyCard() + body;
 }
 
 function calendar(mt) {
@@ -353,16 +412,14 @@ function recurringSection() {
   const list = S.recurring.filter(r => r.active).sort((a, b) => a.day - b.day);
   const rows = list.map(r => {
     const c = catOf(r.type, r.cat);
-    const armed = S.armed === "rec:" + r.id;
-    const when = r.day >= 29 ? `${ordinal(r.day)} (or the last day)` : ordinal(r.day);
-    return `<div class="rec"><span class="ico" style="--c:${c.c}" aria-hidden="true">${c.e}</span>
-      <div class="rec-main"><span class="nm">${esc(r.note || c.n)}</span><span class="sub">${esc(c.n)} · ${when} of each month · ${esc(acctOf(r.acct).n)}</span></div>
-      <span class="num ${r.type === "income" ? "inc" : "exp"}">${peso(r.amount)}</span>
-      ${S.canWrite ? `<button class="btn sm${armed ? " danger armed" : ""}" type="button" data-act="rec-stop" data-id="${esc(r.id)}">${armed ? "Tap to stop" : "Stop"}</button>` : ""}</div>`;
+    return `<button class="rec" type="button" data-act="rec-edit" data-id="${esc(r.id)}"${S.canWrite ? "" : " disabled"}>
+      <span class="ico" style="--c:${c.c}" aria-hidden="true">${c.e}</span>
+      <span class="rec-main"><span class="nm">${esc(r.note || c.n)}</span><span class="sub">${esc(c.n)} · ${recWhen(r.day)} of each month · ${esc(acctOf(r.acct).n)}</span></span>
+      <span class="num ${r.type === "income" ? "inc" : "exp"}">${peso(r.amount)}</span></button>`;
   }).join("");
   return `<section class="card"><span class="label">Recurring every month</span>
     ${rows || `<p class="meta">Rent, Meralco, internet or a salary can add themselves every month. When you log one, tick <b>Repeat every month</b>.</p>`}
-    ${rows ? `<p class="meta">Each is added automatically on its day. You can edit or delete a month's entry like any other; stopping one keeps the entries already added.</p>` : ""}</section>`;
+    ${rows ? `<p class="meta">Each is added automatically on its day. ${S.canWrite ? "Tap one to change its amount or day, or to stop it." : ""}</p>` : ""}</section>`;
 }
 
 function viewAccounts() {
@@ -488,6 +545,7 @@ const sheet = $("#sheet");
 function fillAccounts() {
   const opts = ACCOUNTS.map(a => `<option value="${a.k}">${esc(a.n)}</option>`).join("");
   $("#f-acct").innerHTML = opts; $("#f-to").innerHTML = opts;
+  $("#f-day").innerHTML = Array.from({ length: 31 }, (_, i) => `<option value="${i + 1}">${recWhen(i + 1)}</option>`).join("");
 }
 function renderCats(type, sel) {
   const list = CATS[type] || [];
@@ -499,11 +557,17 @@ function setType(type, sel) {
   const tr = type === "transfer";
   $("#catWrap").hidden = tr; $("#toWrap").hidden = !tr;
   $("#acctLabel").textContent = tr ? "From account" : "Account";
-  $("#repeatWrap").hidden = tr || !!S.editing || S.demo;
+  $("#repeatWrap").hidden = tr || !!S.editing || !!S.editingRec || S.demo;
   if (!tr) renderCats(type, sel || (CATS[type][0] && CATS[type][0].k));
 }
+// The sheet edits either an entry (date) or a recurring item (day of the month; no transfers).
+function setSheetMode(rec) {
+  sheet.dataset.mode = rec ? "rec" : "entry";
+  $("#dateWrap").hidden = rec; $("#dayWrap").hidden = !rec;
+}
 function openSheet(t) {
-  S.editing = t ? t.id : null; S.delArmed = false;
+  S.editing = t ? t.id : null; S.editingRec = null; S.delArmed = false;
+  setSheetMode(false);
   $("#sheetTitle").textContent = t ? "Edit entry" : "New entry";
   $("#f-err").textContent = "";
   const del = $("#f-del"); del.hidden = !t; del.classList.remove("armed"); del.textContent = "Delete";
@@ -522,7 +586,43 @@ function openSheet(t) {
   $("#scrim").hidden = false;
   setTimeout(() => $("#f-amount").focus(), 30);
 }
-function closeSheet() { $("#scrim").hidden = true; S.editing = null; $("#fab").focus(); }
+function openRecSheet(r) {
+  S.editing = null; S.editingRec = r.id; S.delArmed = false;
+  setSheetMode(true);
+  $("#sheetTitle").textContent = "Edit recurring";
+  $("#f-err").textContent = "";
+  const del = $("#f-del"); del.hidden = false; del.classList.remove("armed"); del.textContent = "Stop repeating";
+  setType(r.type, r.cat);
+  $("#f-amount").value = String(r.amount);
+  $("#f-day").value = String(r.day);
+  $("#f-acct").value = r.acct;
+  $("#f-note").value = r.note;
+  const meta = $("#f-meta");
+  meta.hidden = false;
+  meta.textContent = `Set up by ${who(r.createdBy).name} · next added ${recNext(r)}. Changes apply from then on; entries already added stay as they are.`;
+  $("#scrim").hidden = false;
+  setTimeout(() => $("#f-amount").focus(), 30);
+}
+function closeSheet() { $("#scrim").hidden = true; S.editing = null; S.editingRec = null; $("#fab").focus(); }
+
+async function saveRecurringEdit(type, amount, catEl) {
+  const err = $("#f-err");
+  if (!(amount > 0) || amount > 1e9) { err.textContent = "Enter an amount greater than ₱0."; $("#f-amount").focus(); return; }
+  if (!catEl) { err.textContent = "Pick a category."; return; }
+  const r = S.recurring.find(x => x.id === S.editingRec);
+  if (!r) { closeSheet(); return; }
+  const next = recData({
+    ...r, type, amount: Math.round(amount * 100) / 100, cat: catEl.value, acct: $("#f-acct").value,
+    note: $("#f-note").value.trim().slice(0, 120), day: Number($("#f-day").value)
+  });
+  const btn = $("#f-save"); btn.disabled = true;
+  try {
+    await writeWithRetry(() => S.db.collection("recurring").doc(r.id).set(next));
+    closeSheet();
+    flash(`Updated. Next one is added ${recNext(next)}.`);
+  } catch (x) { err.textContent = writeError(x); }
+  finally { btn.disabled = false; }
+}
 
 sheet.addEventListener("change", e => { if (e.target.name === "type") setType(e.target.value); });
 sheet.addEventListener("submit", async e => {
@@ -533,6 +633,7 @@ sheet.addEventListener("submit", async e => {
   const date = $("#f-date").value;
   const acct = $("#f-acct").value, to = $("#f-to").value;
   const catEl = sheet.querySelector('input[name="cat"]:checked');
+  if (S.editingRec) { saveRecurringEdit(type, amount, catEl); return; }
   if (!(amount > 0) || amount > 1e9) { err.textContent = "Enter an amount greater than ₱0."; $("#f-amount").focus(); return; }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { err.textContent = "Pick a date for this entry."; return; }
   if (type === "transfer" && acct === to) { err.textContent = "Choose two different accounts for a transfer."; return; }
@@ -587,6 +688,13 @@ function writeError(x) {
 }
 
 async function deleteEntry() {
+  const rid = S.editingRec;
+  if (rid) {
+    if (!S.delArmed) { S.delArmed = true; const b = $("#f-del"); b.classList.add("armed"); b.textContent = "Tap again to stop"; return; }
+    try { await writeWithRetry(() => S.db.collection("recurring").doc(rid).delete()); closeSheet(); flash("Stopped. Entries already added stay in the book."); }
+    catch (x) { $("#f-err").textContent = writeError(x); }
+    return;
+  }
   const id = S.editing; if (!id) return;
   if (!S.delArmed) { S.delArmed = true; const b = $("#f-del"); b.classList.add("armed"); b.textContent = "Tap again to delete"; return; }
   if (S.demo) { S.demoTx = S.demoTx.filter(t => t.id !== id); closeSheet(); paint(); return; }
@@ -657,12 +765,6 @@ function confirmTap(key) {
   armTimer = setTimeout(() => { S.armed = ""; draw(); }, 4000);
   return false;
 }
-async function stopRecurring(id) {
-  if (!confirmTap("rec:" + id)) return;
-  try { await writeWithRetry(() => S.db.collection("recurring").doc(id).delete()); flash("Stopped. Entries already added stay in the book."); }
-  catch (x) { flash(writeError(x)); }
-  draw();
-}
 async function removeMember(id) {
   if (!confirmTap("remove:" + id)) return;
   try { await S.user.removeMember(id); flash(`${who(id).name} was removed from the book.`); }
@@ -696,9 +798,12 @@ document.addEventListener("click", e => {
   else if (act === "install") install();
   else if (act === "install-later") { try { localStorage.setItem("alkansave.installHint", "off"); } catch {} drawChrome(); }
   else if (act === "csv") downloadCsv(a.dataset.scope);
-  else if (act === "rec-stop") stopRecurring(a.dataset.id);
+  else if (act === "rec-edit") { const r = S.recurring.find(x => x.id === a.dataset.id); if (r) openRecSheet(r); }
   else if (act === "member-remove") removeMember(a.dataset.id);
   else if (act === "leave") leaveBook();
+  else if (act === "filters") { S.showFilters = !S.showFilters; draw(); }
+  else if (act === "scope") { S.f.scope = a.dataset.scope; draw(); }
+  else if (act === "clear-filters") { S.q = ""; S.f = { type: "", cat: "", who: "", acct: "", scope: "month" }; draw(); }
 });
 
 let noticeTimer = 0;
@@ -725,8 +830,16 @@ $("#main").addEventListener("change", e => {
   if (d.lim) saveBudget(d.lim, e.target.value);
   else if (d.start) saveStart(d.start, e.target.value);
   else if (d.role) S.user.setRole(d.role, e.target.value).catch(() => { flash("Couldn't change their role. Check your connection and try again."); draw(); });
+  else if (d.filter) { S.f[d.filter] = e.target.value; draw(); }
 });
-$("#main").addEventListener("keydown", e => { if (e.key === "Enter" && e.target.dataset && (e.target.dataset.lim || e.target.dataset.start)) e.target.blur(); });
+// Typing in search only redraws the results, so the search box keeps focus and the keyboard stays up.
+$("#main").addEventListener("input", e => {
+  if (e.target.id !== "q") return;
+  S.q = e.target.value;
+  const r = $("#results");
+  if (r) r.innerHTML = transBody();
+});
+$("#main").addEventListener("keydown", e => { if (e.key === "Enter" && (e.target.id === "q" || (e.target.dataset && (e.target.dataset.lim || e.target.dataset.start)))) e.target.blur(); });
 $("#main").addEventListener("focusout", () => { setTimeout(() => { if (pending) draw(); }, 0); });
 
 // ---------- Boot ----------

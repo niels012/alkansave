@@ -1,21 +1,13 @@
-// Firebase setup. Without the VITE_FIREBASE_* env vars the app runs in device-only mode.
+// Firebase setup. Only loaded when VITE_FIREBASE_* env vars are set (see config.js).
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "firebase/firestore";
-
-const config = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID
-};
-
-export const firebaseEnabled = Object.values(config).every(Boolean);
+import { firebaseConfig } from "./config.js";
 
 let services = null;
 export function firebase() {
   if (!services) {
-    const app = initializeApp(config);
+    const app = initializeApp(firebaseConfig);
     services = {
       auth: getAuth(app),
       // Keeps a copy on the phone so the book opens and accepts entries offline, then syncs.
