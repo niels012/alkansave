@@ -21,6 +21,10 @@ Without the `VITE_FIREBASE_*` values the app runs in device-only mode (entries s
 - Entries, budgets and members live under the book; `firestore.rules` makes sure only its members can read or write them.
 - Firestore keeps a copy on each phone, so the app opens and accepts entries offline and syncs when back online.
 - "Use on this phone only" skips sign-in; signing in later offers to bring those entries into a new book.
+- The owner can switch members between **Editor** and **View only**, or remove them (Accounts → Family). Others can leave a book.
+- **Starting balances** (Accounts) set what each account held before logging began; the card is entered as the amount owed.
+- **Recurring** entries (tick "Repeat every month" when adding one) are added automatically on their day by whichever family phone opens the app first. Entry ids are fixed per item and month (`r_{id}_{YYYY-MM}`), so they're never added twice.
+- **Export** (Accounts) downloads the month's or all entries as CSV.
 
 ## Installing on a phone
 

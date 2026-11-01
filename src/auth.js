@@ -5,7 +5,7 @@ import {
   isSignInWithEmailLink, sendSignInLinkToEmail, signInWithEmailLink, signOut
 } from "firebase/auth";
 import {
-  doc, getDoc, setDoc, updateDoc, writeBatch, collection, onSnapshot, serverTimestamp, Timestamp
+  doc, getDoc, setDoc, updateDoc, deleteDoc, writeBatch, collection, onSnapshot, serverTimestamp, Timestamp
 } from "firebase/firestore";
 import { firebase } from "./firebase.js";
 import { firestoreDb, toStored } from "./data/firestore.js";
@@ -168,6 +168,20 @@ async function importLocal(fs, hid, uid, local) {
   if (limits && Object.keys(limits).length) {
     await setDoc(doc(fs, "households", hid, "config", "budgets"), { limits, updatedAt: Date.now(), updatedBy: uid });
   }
+  const start = local.accounts && local.accounts.start;
+  if (start && Object.keys(start).length) {
+    await setDoc(doc(fs, "households", hid, "config", "accounts"), { start, updatedAt: Date.now(), updatedBy: uid });
+  }
+  const recs = Object.entries(local.recurring || {}).filter(([, r]) => r && ["expense", "income"].includes(r.type) && r.amount > 0 && /^\d{4}-\d{2}$/.test(r.lastPosted || ""));
+  if (recs.length) {
+    const b = writeBatch(fs);
+    recs.forEach(([id, r]) => b.set(doc(fs, "households", hid, "recurring", id), toStored({
+      type: r.type, amount: r.amount, cat: String(r.cat || "other").slice(0, 30), acct: String(r.acct || "cash").slice(0, 30),
+      note: String(r.note || "").slice(0, 200), day: Math.min(31, Math.max(1, Math.round(Number(r.day)) || 1)),
+      lastPosted: r.lastPosted, active: true, createdBy: uid, createdAt: Math.round(Number(r.createdAt)) || Date.now()
+    })));
+    await b.commit();
+  }
   archiveLocal();
 }
 
@@ -268,7 +282,15 @@ function openSession(auth, fs, u, hid) {
       });
       return homeUrl(code);
     },
-    async signOut() { await signOut(auth); location.replace(homeUrl()); }
+    async signOut() { await signOut(auth); location.replace(homeUrl()); },
+    setRole: (uid, role) => updateDoc(doc(fs, "households", hid, "members", uid), { role }),
+    removeMember: uid => deleteDoc(doc(fs, "households", hid, "members", uid)),
+    async leave() {
+      await deleteDoc(doc(fs, "households", hid, "members", u.uid));
+      await setDoc(doc(fs, "users", u.uid), { householdId: "", updatedAt: Date.now() });
+      store.del(HID + u.uid);
+      location.replace(homeUrl());
+    }
   };
   return { db: firestoreDb(fs, hid), user, local: false };
 }

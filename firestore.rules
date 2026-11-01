@@ -5,6 +5,8 @@ rules_version = '2';
 //   households/{hid}/members/{uid}  role: owner | editor | viewer
 //   households/{hid}/tx/{id}     entries; owners and editors write
 //   households/{hid}/config/budgets  monthly limits
+//   households/{hid}/config/accounts starting balance of each account
+//   households/{hid}/recurring/{id}  bills/income added automatically each month
 //   invites/{code}               join links an owner creates; valid until expiresAt
 //   users/{uid}                  which household a person last opened (private to them)
 service cloud.firestore {
@@ -33,7 +35,8 @@ service cloud.firestore {
     }
 
     function validTx(d) {
-      return d.keys().hasOnly(['type', 'amountCents', 'date', 'cat', 'acct', 'to', 'note', 'by', 'createdAt', 'updatedAt', 'updatedBy'])
+      return d.keys().hasOnly(['type', 'amountCents', 'date', 'cat', 'acct', 'to', 'note', 'by', 'createdAt', 'updatedAt', 'updatedBy', 'rec'])
+        && (d.get('rec', null) == null || shortStr(d.rec, 60))
         && d.keys().hasAll(['type', 'amountCents', 'date', 'cat', 'acct', 'by', 'createdAt'])
         && d.type in ['expense', 'income', 'transfer']
         && d.amountCents is int && d.amountCents > 0 && d.amountCents <= 100000000000
@@ -46,6 +49,25 @@ service cloud.firestore {
         && d.get('updatedAt', 0) is int
         && (d.get('updatedBy', null) == null || d.updatedBy is string)
         && (d.type == 'transfer') == (d.get('to', null) != null);
+    }
+
+    function validRecurring(d) {
+      let fields = ['type', 'amountCents', 'cat', 'acct', 'note', 'day', 'lastPosted', 'active', 'createdBy', 'createdAt'];
+      return d.keys().hasOnly(fields) && d.keys().hasAll(fields)
+        && d.type in ['expense', 'income']
+        && d.amountCents is int && d.amountCents > 0 && d.amountCents <= 100000000000
+        && shortStr(d.cat, 30) && shortStr(d.acct, 30) && shortStr(d.note, 200)
+        && d.day is int && d.day >= 1 && d.day <= 31
+        && d.lastPosted is string && d.lastPosted.matches('^[0-9]{4}-[0-9]{2}$')
+        && d.active is bool
+        && d.createdBy is string && d.createdAt is int;
+    }
+
+    // A recurring bill is posted by whichever family phone opens the app first that month,
+    // but it's credited to the person who set the bill up.
+    function postedForRecurring(hid, d) {
+      let path = /databases/$(database)/documents/households/$(hid)/recurring/$(d.get('rec', '-'));
+      return d.get('rec', null) is string && exists(path) && get(path).data.createdBy == d.by;
     }
 
     match /users/{uid} {
@@ -109,7 +131,7 @@ service cloud.firestore {
       match /tx/{id} {
         allow read: if isMember(hid);
         allow create: if canWrite(hid) && validTx(request.resource.data)
-          && request.resource.data.by == me();
+          && (request.resource.data.by == me() || postedForRecurring(hid, request.resource.data));
         allow update: if canWrite(hid) && validTx(request.resource.data)
           && request.resource.data.by == resource.data.by
           && request.resource.data.createdAt == resource.data.createdAt
@@ -117,13 +139,30 @@ service cloud.firestore {
         allow delete: if canWrite(hid);
       }
 
+      match /recurring/{id} {
+        allow read: if isMember(hid);
+        allow create: if canWrite(hid) && validRecurring(request.resource.data)
+          && request.resource.data.createdBy == me();
+        allow update: if canWrite(hid) && validRecurring(request.resource.data)
+          && request.resource.data.createdBy == resource.data.createdBy
+          && request.resource.data.createdAt == resource.data.createdAt;
+        allow delete: if canWrite(hid);
+      }
+
       match /config/{doc} {
         allow read: if isMember(hid);
-        allow write: if canWrite(hid) && doc == 'budgets'
-          && request.resource.data.keys().hasOnly(['limits', 'updatedAt', 'updatedBy'])
-          && request.resource.data.limits is map
-          && request.resource.data.limits.size() <= 40
-          && request.resource.data.updatedBy == me();
+        allow write: if canWrite(hid)
+          && request.resource.data.updatedBy == me()
+          && (
+            (doc == 'budgets'
+              && request.resource.data.keys().hasOnly(['limits', 'updatedAt', 'updatedBy'])
+              && request.resource.data.limits is map
+              && request.resource.data.limits.size() <= 40)
+            || (doc == 'accounts'
+              && request.resource.data.keys().hasOnly(['start', 'updatedAt', 'updatedBy'])
+              && request.resource.data.start is map
+              && request.resource.data.start.size() <= 20)
+          );
       }
     }
   }

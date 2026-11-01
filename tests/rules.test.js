@@ -170,3 +170,41 @@ test("people can only read and write their own user doc", async () => {
   await assertFails(getDoc(doc(as("eve"), "users", "ben")));
   await assertFails(setDoc(doc(as("eve"), "users", "ben"), { householdId: HID, updatedAt: 1 }));
 });
+
+// ---------- Starting balances ----------
+test("editors can set starting balances; viewers cannot", async () => {
+  const start = { cash: 2500, bank: 48000, card: -12000 };
+  await assertSucceeds(setDoc(doc(as("ben"), "households", HID, "config", "accounts"), { start, updatedAt: 1, updatedBy: "ben" }));
+  await assertFails(setDoc(doc(as("cy"), "households", HID, "config", "accounts"), { start, updatedAt: 1, updatedBy: "cy" }));
+  await assertFails(setDoc(doc(as("ben"), "households", HID, "config", "accounts"), { start, limits: {}, updatedAt: 1, updatedBy: "ben" }));
+});
+
+// ---------- Recurring bills ----------
+const rec = (by, extra = {}) => ({
+  type: "expense", amountCents: 1450000, cat: "bills", acct: "bank", note: "Rent", day: 5,
+  lastPosted: "2026-11", active: true, createdBy: by, createdAt: 1767225600000, ...extra
+});
+
+test("editors can set up recurring bills as themselves; viewers cannot", async () => {
+  await assertSucceeds(setDoc(doc(as("ben"), "households", HID, "recurring", "r1"), rec("ben")));
+  await assertFails(setDoc(doc(as("ben"), "households", HID, "recurring", "r2"), rec("ana")));
+  await assertFails(setDoc(doc(as("cy"), "households", HID, "recurring", "r3"), rec("cy")));
+  await assertFails(setDoc(doc(as("ben"), "households", HID, "recurring", "r4"), rec("ben", { day: 0 })));
+  await assertFails(setDoc(doc(as("ben"), "households", HID, "recurring", "r5"), rec("ben", { type: "transfer" })));
+});
+
+test("any editor can mark a recurring bill posted, without changing its owner", async () => {
+  await env.withSecurityRulesDisabled(ctx => setDoc(doc(ctx.firestore(), "households", HID, "recurring", "r1"), rec("ben")));
+  const ref = doc(as("ana"), "households", HID, "recurring", "r1");
+  await assertSucceeds(setDoc(ref, rec("ben", { lastPosted: "2026-12" })));
+  await assertFails(setDoc(ref, rec("ana", { lastPosted: "2026-12" })));
+  await assertSucceeds(deleteDoc(ref));
+});
+
+test("a recurring entry can be posted for its creator by another family member", async () => {
+  await env.withSecurityRulesDisabled(ctx => setDoc(doc(ctx.firestore(), "households", HID, "recurring", "r1"), rec("ben")));
+  await assertSucceeds(setDoc(doc(as("ana"), "households", HID, "tx", "r_r1_2026-12"), tx("ben", { rec: "r1", cat: "bills" })));
+  // ...but "rec" can't be used to log entries in someone else's name.
+  await assertFails(setDoc(doc(as("ana"), "households", HID, "tx", "fake1"), tx("cy", { rec: "r1" })));
+  await assertFails(setDoc(doc(as("ana"), "households", HID, "tx", "fake2"), tx("ben", { rec: "nosuch" })));
+});

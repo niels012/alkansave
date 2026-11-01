@@ -56,7 +56,8 @@ const S = {
   db: null, user: null, meId: null, isOwner: false, canWrite: true,
   tx: [], budgets: {}, loaded: false, live: "connecting", profiles: {},
   demo: false, demoTx: [], demoBudgets: {}, local: false,
-  editing: null, delArmed: false, notice: "", canSignIn: false
+  editing: null, delArmed: false, notice: "", canSignIn: false,
+  recurring: [], recLoaded: false, starts: {}, armed: ""
 };
 try { const h = location.hash.slice(1); if (VIEWS.includes(h)) S.view = h; } catch {}
 try { const v = localStorage.getItem("alkansave.view"); if (!location.hash && VIEWS.includes(v)) S.view = v; } catch {}
@@ -84,6 +85,26 @@ function cleanLimits(l) {
   if (l && typeof l === "object") for (const c of CATS.expense) { const v = Number(l[c.k]); if (v > 0 && v < 1e10) out[c.k] = v; }
   return out;
 }
+function cleanStarts(s) {
+  const out = {};
+  if (s && typeof s === "object") for (const a of ACCOUNTS) { const v = Number(s[a.k]); if (v && Math.abs(v) < 1e10) out[a.k] = v; }
+  return out;
+}
+function cleanRec(id, d) {
+  if (!d || !["expense", "income"].includes(d.type) || !(Number(d.amount) > 0)) return null;
+  return {
+    id, type: d.type, amount: Number(d.amount),
+    cat: String(d.cat || "other"), acct: String(d.acct || "cash"), note: String(d.note || "").slice(0, 200),
+    day: Math.min(31, Math.max(1, Math.round(Number(d.day)) || 1)),
+    lastPosted: /^\d{4}-\d{2}$/.test(String(d.lastPosted || "")) ? d.lastPosted : todayISO().slice(0, 7),
+    active: d.active !== false, createdBy: typeof d.createdBy === "string" ? d.createdBy : null, createdAt: Number(d.createdAt) || 0
+  };
+}
+// The fields a recurring doc is saved with (no id).
+const recData = r => ({ type: r.type, amount: r.amount, cat: r.cat, acct: r.acct, note: r.note, day: r.day, lastPosted: r.lastPosted, active: r.active, createdBy: r.createdBy, createdAt: r.createdAt });
+const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+const ordinal = n => n + (n % 100 >= 11 && n % 100 <= 13 ? "th" : ({ 1: "st", 2: "nd", 3: "rd" }[n % 10] || "th"));
+const parseAmount = raw => Math.round((parseFloat(String(raw).replace(/[₱,\s]/g, "")) || 0) * 100) / 100;
 
 // ---------- People ----------
 const DEMO_PEOPLE = {
@@ -324,23 +345,86 @@ function viewBudget() {
       ${l ? `<div class="meter"><i style="width:${pct.toFixed(1)}%;--c:${barColor(s, l)}"></i></div>` : ""}
       <div class="bud-foot">${foot}</div></div></div>`;
   }).join("");
-  return head + `<section class="card">${rows}</section>`;
+  return head + `<section class="card">${rows}</section>` + recurringSection();
+}
+
+function recurringSection() {
+  if (S.demo) return "";
+  const list = S.recurring.filter(r => r.active).sort((a, b) => a.day - b.day);
+  const rows = list.map(r => {
+    const c = catOf(r.type, r.cat);
+    const armed = S.armed === "rec:" + r.id;
+    const when = r.day >= 29 ? `${ordinal(r.day)} (or the last day)` : ordinal(r.day);
+    return `<div class="rec"><span class="ico" style="--c:${c.c}" aria-hidden="true">${c.e}</span>
+      <div class="rec-main"><span class="nm">${esc(r.note || c.n)}</span><span class="sub">${esc(c.n)} · ${when} of each month · ${esc(acctOf(r.acct).n)}</span></div>
+      <span class="num ${r.type === "income" ? "inc" : "exp"}">${peso(r.amount)}</span>
+      ${S.canWrite ? `<button class="btn sm${armed ? " danger armed" : ""}" type="button" data-act="rec-stop" data-id="${esc(r.id)}">${armed ? "Tap to stop" : "Stop"}</button>` : ""}</div>`;
+  }).join("");
+  return `<section class="card"><span class="label">Recurring every month</span>
+    ${rows || `<p class="meta">Rent, Meralco, internet or a salary can add themselves every month. When you log one, tick <b>Repeat every month</b>.</p>`}
+    ${rows ? `<p class="meta">Each is added automatically on its day. You can edit or delete a month's entry like any other; stopping one keeps the entries already added.</p>` : ""}</section>`;
 }
 
 function viewAccounts() {
   const all = txAll();
+  const starts = S.demo ? {} : S.starts;
   const bal = k => all.reduce((a, t) => {
     if (t.type === "income" && t.acct === k) return a + t.amount;
     if (t.type === "expense" && t.acct === k) return a - t.amount;
     if (t.type === "transfer") { if (t.acct === k) a -= t.amount; if (t.to === k) a += t.amount; }
     return a;
-  }, 0);
+  }, starts[k] || 0);
   const rows = ACCOUNTS.map(a => ({ ...a, b: bal(a.k) }));
   const assets = rows.filter(r => r.b > 0).reduce((s, r) => s + r.b, 0);
   const liab = rows.filter(r => r.b < 0).reduce((s, r) => s + r.b, 0);
   return `<section class="card"><div class="acct-sum"><div><span>Assets</span><b class="num inc">${peso(assets)}</b></div><div><span>Owed</span><b class="num exp">${peso(-liab)}</b></div><div><span>Net</span><b class="num">${peso(assets + liab)}</b></div></div></section>
-    <section class="card"><span class="label">Balances from every entry logged</span>${rows.map(r => `<div class="acct"><span class="ico" style="--c:${r.c}" aria-hidden="true">${r.e}</span><div><div class="nm">${esc(r.n)}</div><div class="sub">${esc(r.sub)}</div></div><span class="num ${r.b < 0 ? "exp" : r.b > 0 ? "inc" : ""}">${peso(r.b)}</span></div>`).join("")}</section>
-    <p class="meta">Balances start at ₱0 in this prototype. Log an "Other income" entry to set an account's starting amount.</p>` + familySection() + installSection();
+    <section class="card"><span class="label">Balances</span>${rows.map(r => `<div class="acct"><span class="ico" style="--c:${r.c}" aria-hidden="true">${r.e}</span><div><div class="nm">${esc(r.n)}</div><div class="sub">${esc(r.sub)}</div></div><span class="num ${r.b < 0 ? "exp" : r.b > 0 ? "inc" : ""}">${peso(r.b)}</span></div>`).join("")}</section>`
+    + startSection() + familySection() + exportSection() + installSection();
+}
+
+// What each account held before the family started logging. The card is entered as the amount owed.
+function startSection() {
+  if (S.demo) return "";
+  const editable = S.canWrite;
+  const rows = ACCOUNTS.map(a => {
+    const owed = a.k === "card";
+    const v = S.starts[a.k] ? (owed ? -S.starts[a.k] : S.starts[a.k]) : "";
+    return `<div class="acct"><span class="ico" style="--c:${a.c}" aria-hidden="true">${a.e}</span>
+      <div><div class="nm">${esc(a.n)}</div><div class="sub">${owed ? "Owed when you started" : "Had when you started"}</div></div>
+      <label class="limit"><span>₱</span><input data-start="${a.k}" inputmode="decimal" value="${v}" placeholder="0" aria-label="Starting ${owed ? "amount owed on" : "balance of"} ${esc(a.n)}"${editable ? "" : " disabled"}></label></div>`;
+  }).join("");
+  return `<section class="card"><span class="label">Starting balances</span>
+    <p class="meta">Enter what's already in each account so the balances above match real life.</p>${rows}</section>`;
+}
+
+function exportSection() {
+  if (S.demo || !txAll().length) return "";
+  return `<section class="card"><span class="label">Export</span>
+    <p class="meta">Download entries as a CSV file for Excel or Google Sheets.</p>
+    <div class="bar-row"><button class="btn" type="button" data-act="csv" data-scope="month">${esc(monthLabel(S.month))}</button><button class="btn" type="button" data-act="csv" data-scope="all">All entries</button></div></section>`;
+}
+
+function downloadCsv(scope) {
+  const rows = (scope === "month" ? monthTx() : txAll()).slice().sort((a, b) => a.date.localeCompare(b.date) || a.createdAt - b.createdAt);
+  if (!rows.length) { flash(`Nothing logged in ${monthLabel(S.month)} yet.`); return; }
+  // Quote text, and stop spreadsheet apps from treating a note like "=SUM(...)" as a formula.
+  const cell = v => { let s = String(v ?? ""); if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
+  const name = id => (id && S.profiles[id] && S.profiles[id].name) || who(id).name;
+  const lines = [["Date", "Type", "Category", "Amount (PHP)", "Account", "To account", "Note", "Logged by"].join(",")];
+  for (const t of rows) {
+    lines.push([
+      t.date, t.type[0].toUpperCase() + t.type.slice(1), cell(catOf(t.type, t.cat).n), t.amount.toFixed(2),
+      cell(acctOf(t.acct).n), t.type === "transfer" ? cell(acctOf(t.to).n) : "", cell(t.note), cell(name(t.by))
+    ].join(","));
+  }
+  const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `alkansave-${scope === "month" ? S.month : "all"}-${todayISO()}.csv`;
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
 }
 
 // ---------- Install as an app ----------
@@ -380,11 +464,23 @@ function familySection() {
   }
   const roleName = { owner: "Owner", editor: "Editor", viewer: "View only" };
   const order = { owner: 0, editor: 1, viewer: 2 };
-  const rows = S.user.members().sort((a, b) => (order[a.role] ?? 3) - (order[b.role] ?? 3)).map(m =>
-    `<div class="member">${avatar(m.id)}<span class="nm">${esc(who(m.id).name)}</span><span class="meta">${roleName[m.role] || ""}</span></div>`).join("");
+  const rows = S.user.members().sort((a, b) => (order[a.role] ?? 3) - (order[b.role] ?? 3)).map(m => {
+    // The owner can switch others between Editor and View only, or remove them (tap twice).
+    const manage = S.isOwner && m.id !== S.meId && m.role !== "owner";
+    const armed = S.armed === "remove:" + m.id;
+    const role = manage
+      ? `<select class="role" data-role="${esc(m.id)}" aria-label="Role for ${esc(who(m.id).name)}"><option value="editor"${m.role === "editor" ? " selected" : ""}>Editor</option><option value="viewer"${m.role === "viewer" ? " selected" : ""}>View only</option></select>
+         <button class="btn sm danger${armed ? " armed" : ""}" type="button" data-act="member-remove" data-id="${esc(m.id)}">${armed ? "Tap to remove" : "Remove"}</button>`
+      : `<span class="meta">${roleName[m.role] || ""}</span>`;
+    return `<div class="member${manage ? " manage" : ""}">${avatar(m.id)}<span class="nm">${esc(who(m.id).name)}</span>${role}</div>`;
+  }).join("");
+  const leaveArmed = S.armed === "leave";
   return `<section class="card"><span class="label">Family · ${esc(S.user.household().name)}</span>${rows}
-    ${S.isOwner ? `<div><button class="btn primary" type="button" data-act="invite">Invite family</button></div>` : ""}
-    <div class="bar-row"><span class="meta">Signed in as ${esc(S.user.email)}</span><button class="btn" type="button" data-act="signout">Sign out</button></div></section>`;
+    ${S.isOwner ? `<div><button class="btn primary" type="button" data-act="invite">Invite family</button></div>`
+      : `<p class="meta">Editors can add and change entries. View only members can look but not change anything.</p>`}
+    <div class="bar-row"><span class="meta">Signed in as ${esc(S.user.email)}</span><span class="banner-actions">
+      ${S.isOwner ? "" : `<button class="btn danger${leaveArmed ? " armed" : ""}" type="button" data-act="leave">${leaveArmed ? "Tap to leave" : "Leave book"}</button>`}
+      <button class="btn" type="button" data-act="signout">Sign out</button></span></div></section>`;
 }
 
 // ---------- Entry sheet ----------
@@ -403,6 +499,7 @@ function setType(type, sel) {
   const tr = type === "transfer";
   $("#catWrap").hidden = tr; $("#toWrap").hidden = !tr;
   $("#acctLabel").textContent = tr ? "From account" : "Account";
+  $("#repeatWrap").hidden = tr || !!S.editing || S.demo;
   if (!tr) renderCats(type, sel || (CATS[type][0] && CATS[type][0].k));
 }
 function openSheet(t) {
@@ -413,6 +510,7 @@ function openSheet(t) {
   const today = todayISO();
   const defDate = S.view === "calendar" ? S.selDay : (today.slice(0, 7) === S.month ? today : `${S.month}-01`);
   setType(t ? t.type : "expense", t ? t.cat : null);
+  $("#f-repeat").checked = false;
   $("#f-amount").value = t ? String(t.amount) : "";
   $("#f-date").value = t ? t.date : defDate;
   $("#f-acct").value = t ? t.acct : "cash";
@@ -457,7 +555,17 @@ sheet.addEventListener("submit", async e => {
   }
   const btn = $("#f-save"); btn.disabled = true;
   try {
-    const ref = prev ? S.db.collection("tx").doc(prev.id) : S.db.collection("tx").doc();
+    let ref = prev ? S.db.collection("tx").doc(prev.id) : S.db.collection("tx").doc();
+    if (!prev && type !== "transfer" && $("#f-repeat").checked) {
+      // This entry is the first month; later months are added by postRecurring() under the same id scheme.
+      const rid = newId(), month = date.slice(0, 7);
+      await writeWithRetry(() => S.db.collection("recurring").doc(rid).set({
+        type, amount: data.amount, cat: data.cat, acct, note: data.note, day: Number(date.slice(8)),
+        lastPosted: month, active: true, createdBy: me, createdAt: Date.now()
+      }));
+      ref = S.db.collection("tx").doc(`r_${rid}_${month}`);
+      data.rec = rid;
+    }
     await writeWithRetry(() => ref.set(data));
     closeSheet();
   } catch (x) { err.textContent = writeError(x); }
@@ -498,10 +606,79 @@ function saveBudget(k, raw) {
   budgetQueue = budgetQueue.then(() => writeWithRetry(() => S.db.doc("config/budgets").set({ limits, updatedAt: Date.now(), updatedBy: S.meId }))).catch(x => { writeError(x); draw(); });
 }
 
+// ---------- Starting balances ----------
+let startQueue = Promise.resolve();
+function saveStart(k, raw) {
+  const v = parseAmount(raw) * (k === "card" ? -1 : 1);
+  if ((S.starts[k] || 0) === v) return;
+  if (v) S.starts[k] = v; else delete S.starts[k];
+  const start = { ...S.starts };
+  startQueue = startQueue.then(() => writeWithRetry(() => S.db.doc("config/accounts").set({ start, updatedAt: Date.now(), updatedBy: S.meId }))).catch(x => { flash(writeError(x)); draw(); });
+}
+
+// ---------- Recurring ----------
+// Adds each recurring item's entries for every month that's due (its day has arrived), up to 12 months back.
+// Entry ids are fixed per item and month, so two phones posting at once can't create duplicates.
+let posting = false;
+async function postRecurring() {
+  if (posting || S.demo || !S.canWrite || !S.recLoaded || !S.db) return;
+  posting = true;
+  const today = todayISO(), thisMonth = today.slice(0, 7);
+  for (const r of S.recurring) {
+    if (!r.active || !r.createdBy) continue;
+    let month = r.lastPosted, posted = null;
+    try {
+      for (let i = 0; i < 12; i++) {
+        const next = shiftMonth(month, 1);
+        const date = `${next}-${pad(Math.min(r.day, daysIn(next)))}`;
+        if (next > thisMonth || date > today) break;
+        await S.db.collection("tx").doc(`r_${r.id}_${next}`).set({
+          type: r.type, amount: r.amount, date, cat: r.cat, acct: r.acct, to: null, note: r.note,
+          by: r.createdBy, createdAt: Date.now(), updatedAt: 0, updatedBy: null, rec: r.id
+        });
+        month = posted = next;
+      }
+    } catch (x) { console.warn("AlkanSave recurring:", x); } // usually another phone posted it first
+    if (posted) {
+      try { await S.db.collection("recurring").doc(r.id).set(recData({ ...r, lastPosted: posted })); }
+      catch (x) { console.warn("AlkanSave recurring:", x); }
+    }
+  }
+  posting = false;
+}
+
+// ---------- Two-tap confirmations ----------
+// First tap arms the button ("Tap to remove"), a second tap within 4 seconds does it.
+let armTimer = 0;
+function confirmTap(key) {
+  if (S.armed === key) { S.armed = ""; clearTimeout(armTimer); return true; }
+  S.armed = key; draw();
+  clearTimeout(armTimer);
+  armTimer = setTimeout(() => { S.armed = ""; draw(); }, 4000);
+  return false;
+}
+async function stopRecurring(id) {
+  if (!confirmTap("rec:" + id)) return;
+  try { await writeWithRetry(() => S.db.collection("recurring").doc(id).delete()); flash("Stopped. Entries already added stay in the book."); }
+  catch (x) { flash(writeError(x)); }
+  draw();
+}
+async function removeMember(id) {
+  if (!confirmTap("remove:" + id)) return;
+  try { await S.user.removeMember(id); flash(`${who(id).name} was removed from the book.`); }
+  catch { flash("Couldn't remove them. Check your connection and try again."); }
+  draw();
+}
+async function leaveBook() {
+  if (!confirmTap("leave")) return;
+  try { await S.user.leave(); }
+  catch { flash("Couldn't leave the book. Check your connection and try again."); draw(); }
+}
+
 // ---------- Events ----------
 document.addEventListener("click", e => {
   const v = e.target.closest("[data-view]");
-  if (v) { S.view = v.dataset.view; try { localStorage.setItem("alkansave.view", S.view); } catch {} draw(); window.scrollTo(0, 0); return; }
+  if (v) { S.view = v.dataset.view; S.armed = ""; try { localStorage.setItem("alkansave.view", S.view); } catch {} draw(); window.scrollTo(0, 0); return; }
   const a = e.target.closest("[data-act]"); if (!a) return;
   const act = a.dataset.act;
   if (act === "prev" || act === "next") { S.month = shiftMonth(S.month, act === "prev" ? -1 : 1); draw(); }
@@ -518,6 +695,10 @@ document.addEventListener("click", e => {
   else if (act === "signin") leaveDeviceOnly();
   else if (act === "install") install();
   else if (act === "install-later") { try { localStorage.setItem("alkansave.installHint", "off"); } catch {} drawChrome(); }
+  else if (act === "csv") downloadCsv(a.dataset.scope);
+  else if (act === "rec-stop") stopRecurring(a.dataset.id);
+  else if (act === "member-remove") removeMember(a.dataset.id);
+  else if (act === "leave") leaveBook();
 });
 
 let noticeTimer = 0;
@@ -539,8 +720,13 @@ async function invite() {
 }
 $("#scrim").addEventListener("click", e => { if (e.target.id === "scrim") closeSheet(); });
 document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("#scrim").hidden) closeSheet(); });
-$("#main").addEventListener("change", e => { const k = e.target.dataset && e.target.dataset.lim; if (k) { saveBudget(k, e.target.value); } });
-$("#main").addEventListener("keydown", e => { if (e.key === "Enter" && e.target.dataset && e.target.dataset.lim) e.target.blur(); });
+$("#main").addEventListener("change", e => {
+  const d = e.target.dataset || {};
+  if (d.lim) saveBudget(d.lim, e.target.value);
+  else if (d.start) saveStart(d.start, e.target.value);
+  else if (d.role) S.user.setRole(d.role, e.target.value).catch(() => { flash("Couldn't change their role. Check your connection and try again."); draw(); });
+});
+$("#main").addEventListener("keydown", e => { if (e.key === "Enter" && e.target.dataset && (e.target.dataset.lim || e.target.dataset.start)) e.target.blur(); });
 $("#main").addEventListener("focusout", () => { setTimeout(() => { if (pending) draw(); }, 0); });
 
 // ---------- Boot ----------
@@ -572,4 +758,16 @@ draw();
     S.budgets = cleanLimits(snap.exists ? snap.data().limits : null);
     draw();
   }, () => {});
+  S.db.doc("config/accounts").onSnapshot(snap => {
+    S.starts = cleanStarts(snap.exists ? snap.data().start : null);
+    draw();
+  }, () => {});
+  S.db.collection("recurring").onSnapshot(snap => {
+    S.recurring = snap.docs.map(d => cleanRec(d.id, d.data())).filter(Boolean);
+    S.recLoaded = true;
+    draw();
+    postRecurring();
+  }, () => {});
+  // A phone left open overnight still adds bills that fall due when it's reopened.
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) postRecurring(); });
 })();

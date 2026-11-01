@@ -1,5 +1,6 @@
 // Browser-only storage with the same calls app.js makes on the shared database.
 // Used for "this phone only" mode, and when Firebase isn't configured.
+// Stored as { tx: {...}, recurring: {...}, budgets: {...}, accounts: {...} }.
 const KEY = "alkansave.local";
 const OLD_KEY = "kwarta.local";
 const BACKUP_KEY = "alkansave.local.imported";
@@ -8,6 +9,7 @@ export function readLocal() {
   let store = {};
   try { store = JSON.parse(localStorage.getItem(KEY) || localStorage.getItem(OLD_KEY)) || {}; } catch {}
   store.tx = store.tx || {};
+  store.recurring = store.recurring || {};
   return store;
 }
 
@@ -28,16 +30,23 @@ export function localDb() {
   const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
   const watch = (cb, snap) => { const f = () => cb(snap()); subs.push(f); f(); };
   return {
-    collection: () => ({
-      doc: id => {
-        const k = id || newId();
-        return { set: async d => { store.tx[k] = d; persist(); }, delete: async () => { delete store.tx[k]; persist(); } };
-      },
-      onSnapshot: cb => watch(cb, () => ({ docs: Object.entries(store.tx).map(([id, d]) => ({ id, data: () => d })), metadata: { hasPendingWrites: false } }))
-    }),
-    doc: () => ({
-      set: async d => { store.budgets = d; persist(); },
-      onSnapshot: cb => watch(cb, () => ({ exists: !!store.budgets, data: () => store.budgets }))
-    })
+    collection: name => {
+      const col = store[name] = store[name] || {};
+      return {
+        doc: id => {
+          const k = id || newId();
+          return { set: async d => { col[k] = d; persist(); }, delete: async () => { delete col[k]; persist(); } };
+        },
+        onSnapshot: cb => watch(cb, () => ({ docs: Object.entries(col).map(([id, d]) => ({ id, data: () => d })), metadata: { hasPendingWrites: false } }))
+      };
+    },
+    // "config/budgets" → store.budgets, "config/accounts" → store.accounts
+    doc: path => {
+      const key = path.split("/").pop();
+      return {
+        set: async d => { store[key] = d; persist(); },
+        onSnapshot: cb => watch(cb, () => ({ exists: !!store[key], data: () => store[key] }))
+      };
+    }
   };
 }

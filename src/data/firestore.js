@@ -1,6 +1,8 @@
-// Firestore with the same calls app.js makes on localDb(): collection("tx"), doc("config/budgets"),
+// Firestore with the same calls app.js makes on localDb(): collection(name), doc("config/…"),
 // onSnapshot / set / delete. Amounts are stored as whole centavos and handed to the app as pesos.
 import { collection, doc, onSnapshot, setDoc, deleteDoc } from "firebase/firestore";
+
+const WITH_AMOUNT = new Set(["tx", "recurring"]);
 
 export const toStored = d => {
   const { amount, ...rest } = d;
@@ -21,19 +23,22 @@ const settle = p => {
 
 export function firestoreDb(fs, hid) {
   const base = `households/${hid}`;
-  const txCol = collection(fs, base, "tx");
   const docRef = ref => ({
-    set: d => settle(setDoc(ref, ref.parent.id === "tx" ? toStored(d) : d)),
+    set: d => settle(setDoc(ref, WITH_AMOUNT.has(ref.parent.id) ? toStored(d) : d)),
     delete: () => settle(deleteDoc(ref))
   });
   return {
-    collection: () => ({
-      doc: id => docRef(id ? doc(txCol, id) : doc(txCol)),
-      onSnapshot: (cb, err) => onSnapshot(txCol, { includeMetadataChanges: true }, s => cb({
-        docs: s.docs.map(d => ({ id: d.id, data: () => fromStored(d.data()) })),
-        metadata: { hasPendingWrites: s.metadata.hasPendingWrites, fromCache: s.metadata.fromCache }
-      }), err)
-    }),
+    collection: name => {
+      const col = collection(fs, base, name);
+      const read = WITH_AMOUNT.has(name) ? fromStored : d => d;
+      return {
+        doc: id => docRef(id ? doc(col, id) : doc(col)),
+        onSnapshot: (cb, err) => onSnapshot(col, { includeMetadataChanges: true }, s => cb({
+          docs: s.docs.map(d => ({ id: d.id, data: () => read(d.data()) })),
+          metadata: { hasPendingWrites: s.metadata.hasPendingWrites, fromCache: s.metadata.fromCache }
+        }), err)
+      };
+    },
     doc: path => {
       const ref = doc(fs, base, path);
       return {
