@@ -37,6 +37,23 @@ AlkanSave is an installable web app (no app store needed):
 
 The first screen loads only the app itself (~16 KB gzipped); the Firebase SDK (~200 KB) is fetched right after, from `src/data/index.js`.
 
+## Bill reminders
+
+Each phone can turn on reminders in **Budget → Bill reminders**. At 8 AM Philippine time, Vercel Cron calls `api/reminders.js`, which finds repeating bills due tomorrow in each family book and sends one notification to every phone that turned reminders on (Firebase Cloud Messaging). On iPhone this works only in the installed Home Screen app.
+
+Setup (once):
+
+- `VITE_FIREBASE_MESSAGING_SENDER_ID` and `VITE_FIREBASE_VAPID_KEY` (Firebase → Project settings → Cloud Messaging → Web Push certificates) in `.env.local` and Vercel.
+- `FIREBASE_SERVICE_ACCOUNT` (the JSON of a key from Firebase → Project settings → Service accounts) and `CRON_SECRET` (any long random string) in Vercel only, as secrets.
+
+Send reminders now for a given due date (e.g. to test):
+
+```sh
+curl -H "Authorization: Bearer $CRON_SECRET" "https://<your-domain>/api/reminders?date=2026-12-05"
+```
+
+`npm test` checks which bills are due when and the reminder wording (`api/_due.js`).
+
 ## Security rules
 
 ```sh

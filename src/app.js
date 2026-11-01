@@ -58,9 +58,12 @@ const S = {
   demo: false, demoTx: [], demoBudgets: {}, local: false,
   editing: null, delArmed: false, notice: "", canSignIn: false,
   recurring: [], recLoaded: false, starts: {}, armed: "",
-  editingRec: null, q: "", showFilters: false, f: { type: "", cat: "", who: "", acct: "", scope: "month" }
+  editingRec: null, q: "", showFilters: false, f: { type: "", cat: "", who: "", acct: "", scope: "month" },
+  rem: "", remBusy: false
 };
 try { const h = location.hash.slice(1); if (VIEWS.includes(h)) S.view = h; } catch {}
+// A tapped bill reminder opens "/#budget" in an already-open app.
+addEventListener("hashchange", () => { const h = location.hash.slice(1); if (VIEWS.includes(h) && h !== S.view) { S.view = h; draw(); } });
 try { const v = localStorage.getItem("alkansave.view"); if (!location.hash && VIEWS.includes(v)) S.view = v; } catch {}
 
 const txAll = () => S.demo ? S.demoTx : S.tx;
@@ -404,7 +407,65 @@ function viewBudget() {
       ${l ? `<div class="meter"><i style="width:${pct.toFixed(1)}%;--c:${barColor(s, l)}"></i></div>` : ""}
       <div class="bud-foot">${foot}</div></div></div>`;
   }).join("");
-  return head + `<section class="card">${rows}</section>` + recurringSection();
+  return head + `<section class="card">${rows}</section>` + recurringSection() + reminderSection();
+}
+
+// ---------- Bill reminders ----------
+// Sent by api/reminders.js at 8 AM the day before a recurring expense is due.
+const REMINDER_TIME = "8 AM";
+function nextReminder() {
+  const today = todayISO();
+  let best = null;
+  for (const r of S.recurring) {
+    if (!r.active || r.type !== "expense") continue;
+    for (const m of [today.slice(0, 7), shiftMonth(today.slice(0, 7), 1)]) {
+      const due = `${m}-${pad(Math.min(r.day, daysIn(m)))}`;
+      const d = new Date(due + "T00:00:00"); d.setDate(d.getDate() - 1);
+      const remind = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+      if (remind > today) { if (!best || remind < best.remind) best = { remind, due, r }; break; }
+    }
+  }
+  return best;
+}
+function reminderSection() {
+  if (S.demo || !S.user || !S.rem || S.rem === "unavailable") return "";
+  const bills = S.recurring.filter(r => r.active && r.type === "expense").length;
+  const day = iso => new Date(iso + "T00:00:00").toLocaleDateString("en-PH", { month: "short", day: "numeric" });
+  const msg = {
+    "needs-install": `On iPhone, reminders only work in the installed app. Tap ${SHARE_ICON} <b>Share</b> → <b>Add to Home Screen</b>, open AlkanSave from your Home Screen, and turn them on there.`,
+    unsupported: "This browser can't show reminders. Open AlkanSave in Chrome, or install it to your Home Screen.",
+    denied: "Notifications are blocked for AlkanSave on this phone. Allow them in your phone's settings for this app (or the browser's site settings), then reopen AlkanSave.",
+    off: `Get a notification at ${REMINDER_TIME} the day before each repeating bill is due.`,
+    on: `On for this phone. You'll get a notification at ${REMINDER_TIME} the day before each repeating bill is due.`
+  }[S.rem] || "";
+  const next = S.rem === "on" && nextReminder();
+  const none = (S.rem === "on" || S.rem === "off") && !bills;
+  const button = S.rem === "off" ? `<button class="btn primary" type="button" data-act="rem-on"${S.remBusy ? " disabled" : ""}>${S.remBusy ? "Turning on…" : "Turn on reminders"}</button>`
+    : S.rem === "on" ? `<button class="btn" type="button" data-act="rem-off"${S.remBusy ? " disabled" : ""}>Turn off</button>` : "";
+  return `<section class="card"><span class="label">Bill reminders${S.rem === "on" ? " · On" : ""}</span>
+    <p class="meta">${msg}</p>
+    ${next ? `<p class="meta">Next: <b>${day(next.remind)}</b>, for ${esc(next.r.note || catOf("expense", next.r.cat).n)} (due ${day(next.due)}).</p>` : ""}
+    ${none ? `<p class="meta">Reminders are for bills set to repeat every month. Tick <b>Repeat every month</b> when you log rent, Meralco or internet.</p>` : ""}
+    ${button ? `<div>${button}</div>` : ""}</section>`;
+}
+async function turnOnReminders() {
+  // Ask right away, inside the tap: iPhones only show the permission prompt in direct response to a tap.
+  const permission = "Notification" in window ? Notification.requestPermission() : Promise.resolve("denied");
+  S.remBusy = true; draw();
+  try {
+    S.rem = await S.user.reminders.enable(permission);
+    flash(S.rem === "on" ? `Bill reminders are on for this phone.` : S.rem === "denied" ? "Notifications were blocked, so reminders can't be shown." : "Reminders weren't turned on.");
+  } catch (x) {
+    console.warn("AlkanSave reminders:", x);
+    flash("Couldn't turn on reminders. Check your connection and try again.");
+  }
+  S.remBusy = false; draw();
+}
+async function turnOffReminders() {
+  S.remBusy = true; draw();
+  try { S.rem = await S.user.reminders.disable(); flash("Bill reminders are off for this phone."); }
+  catch { flash("Couldn't turn off reminders. Check your connection and try again."); }
+  S.remBusy = false; draw();
 }
 
 function recurringSection() {
@@ -804,6 +865,8 @@ document.addEventListener("click", e => {
   else if (act === "filters") { S.showFilters = !S.showFilters; draw(); }
   else if (act === "scope") { S.f.scope = a.dataset.scope; draw(); }
   else if (act === "clear-filters") { S.q = ""; S.f = { type: "", cat: "", who: "", acct: "", scope: "month" }; draw(); }
+  else if (act === "rem-on") turnOnReminders();
+  else if (act === "rem-off") turnOffReminders();
 });
 
 let noticeTimer = 0;
@@ -857,6 +920,7 @@ draw();
   if (user) {
     const [id, cw, own] = await Promise.all([user.id(), user.can("data.write"), user.isOwner()]);
     S.meId = id; S.canWrite = cw !== false; S.isOwner = own;
+    user.reminders.state().then(st => { S.rem = st; draw(); if (st === "on") user.reminders.refresh(); });
   } else {
     S.meId = "local"; S.canWrite = true;
   }

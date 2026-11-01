@@ -7,6 +7,7 @@ rules_version = '2';
 //   households/{hid}/config/budgets  monthly limits
 //   households/{hid}/config/accounts starting balance of each account
 //   households/{hid}/recurring/{id}  bills/income added automatically each month
+//   households/{hid}/members/{uid}/devices/{id}  phones that get bill reminders
 //   invites/{code}               join links an owner creates; valid until expiresAt
 //   users/{uid}                  which household a person last opened (private to them)
 service cloud.firestore {
@@ -126,6 +127,17 @@ service cloud.firestore {
         // Leave the household (not the owner), or the owner removes someone else.
         allow delete: if (uid == me() && isMember(hid) && resource.data.role != 'owner')
           || (isOwner(hid) && uid != me());
+
+        // Phones that get bill reminders. Only the person themselves can see or change theirs;
+        // the daily reminder job (api/reminders.js) reads them with admin access.
+        match /devices/{deviceId} {
+          allow read, delete: if signedIn() && uid == me() && isMember(hid);
+          allow create, update: if signedIn() && uid == me() && isMember(hid)
+            && request.resource.data.keys().hasOnly(['token', 'platform', 'updatedAt'])
+            && shortStr(request.resource.data.token, 4096) && request.resource.data.token.size() > 0
+            && shortStr(request.resource.data.platform, 40)
+            && request.resource.data.updatedAt is int;
+        }
       }
 
       match /tx/{id} {

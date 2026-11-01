@@ -208,3 +208,15 @@ test("a recurring entry can be posted for its creator by another family member",
   await assertFails(setDoc(doc(as("ana"), "households", HID, "tx", "fake1"), tx("cy", { rec: "r1" })));
   await assertFails(setDoc(doc(as("ana"), "households", HID, "tx", "fake2"), tx("ben", { rec: "nosuch" })));
 });
+
+// ---------- Bill reminder phones ----------
+test("members can register their own phone for reminders, and nobody else's", async () => {
+  const device = { token: "fcm-token-abc", platform: "android", updatedAt: 1 };
+  await assertSucceeds(setDoc(doc(as("cy"), "households", HID, "members", "cy", "devices", "d1"), device));
+  await assertSucceeds(getDoc(doc(as("cy"), "households", HID, "members", "cy", "devices", "d1")));
+  await assertFails(setDoc(doc(as("ana"), "households", HID, "members", "cy", "devices", "d2"), device));
+  await assertFails(getDoc(doc(as("ana"), "households", HID, "members", "cy", "devices", "d1")));
+  await assertFails(setDoc(doc(as("eve"), "households", HID, "members", "eve", "devices", "d3"), device));
+  await assertFails(setDoc(doc(as("cy"), "households", HID, "members", "cy", "devices", "d4"), { ...device, extra: 1 }));
+  await assertSucceeds(deleteDoc(doc(as("cy"), "households", HID, "members", "cy", "devices", "d1")));
+});

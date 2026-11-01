@@ -66,3 +66,35 @@ self.addEventListener("fetch", event => {
     event.respondWith(cacheFirst(FONTS, req));
   }
 });
+
+// ---------- Bill reminders ----------
+// api/reminders.js sends data-only Firebase Cloud Messaging pushes; this shows them as notifications.
+self.addEventListener("push", event => {
+  let payload = {};
+  try { payload = event.data ? event.data.json() : {}; } catch {}
+  const data = payload.data || payload;
+  const shown = payload.notification || {};
+  event.waitUntil(self.registration.showNotification(data.title || shown.title || "AlkanSave", {
+    body: data.body || shown.body || "",
+    icon: "/icons/icon-192.png",
+    badge: "/icons/favicon-64.png",
+    tag: data.tag || "alkansave-bills",
+    data: { url: data.url || "/" }
+  }));
+});
+
+// Tapping a reminder opens AlkanSave (or brings it forward) on the Budget tab.
+self.addEventListener("notificationclick", event => {
+  event.notification.close();
+  const url = new URL((event.notification.data && event.notification.data.url) || "/", self.location.origin).href;
+  event.waitUntil((async () => {
+    const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    for (const w of windows) {
+      if (new URL(w.url).origin !== self.location.origin) continue;
+      await w.focus();
+      if ("navigate" in w) await w.navigate(url).catch(() => {});
+      return;
+    }
+    await self.clients.openWindow(url);
+  })());
+});

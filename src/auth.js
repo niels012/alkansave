@@ -273,16 +273,27 @@ function openSession(auth, fs, u, hid) {
       });
       return homeUrl(code);
     },
-    async signOut() { await signOut(auth); location.replace(homeUrl()); },
+    async signOut() { await stopReminders(); await signOut(auth); location.replace(homeUrl()); },
     setRole: (uid, role) => updateDoc(doc(fs, "households", hid, "members", uid), { role }),
     removeMember: uid => deleteDoc(doc(fs, "households", hid, "members", uid)),
     async leave() {
+      await stopReminders();
       await deleteDoc(doc(fs, "households", hid, "members", u.uid));
       await setDoc(doc(fs, "users", u.uid), { householdId: "", updatedAt: Date.now() });
       store.del(HID + u.uid);
       location.replace(homeUrl());
+    },
+    // Bill reminders for this phone (src/reminders.js, loaded only when used).
+    reminders: {
+      state: () => loadReminders().then(m => m.reminderState()).catch(() => "unsupported"),
+      enable: permission => loadReminders().then(m => m.enableReminders(hid, u.uid, permission)),
+      disable: () => loadReminders().then(m => m.disableReminders(hid, u.uid)),
+      refresh: () => loadReminders().then(m => m.refreshReminders(hid, u.uid)).catch(() => {})
     }
   };
+  const loadReminders = () => import("./reminders.js");
+  // Signing out or leaving shouldn't leave this phone getting someone's bill reminders.
+  const stopReminders = () => loadReminders().then(m => m.disableReminders(hid, u.uid)).catch(() => {});
   return { db: firestoreDb(fs, hid), user, local: false };
 }
 

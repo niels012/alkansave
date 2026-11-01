@@ -9,6 +9,7 @@ export function firebase() {
   if (!services) {
     const app = initializeApp(firebaseConfig);
     services = {
+      app,
       auth: getAuth(app),
       // Keeps a copy on the phone so the book opens and accepts entries offline, then syncs.
       fs: initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) })

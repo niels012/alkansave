@@ -3,6 +3,9 @@
   "framework": "vite",
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
+  "crons": [
+    { "path": "/api/reminders", "schedule": "0 0 * * *" }
+  ],
   "headers": [
     {
       "source": "/sw.js",
