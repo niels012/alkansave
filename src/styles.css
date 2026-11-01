@@ -247,3 +247,11 @@ main.wrap { padding-block: 12px calc(var(--nav-h) + 96px + env(safe-area-inset-b
 .btn.wide { width: 100%; padding-block: 11px; }
 .link { border: 0; background: none; color: var(--accent); font-weight: 600; font-size: 14px; padding: 4px 0; justify-self: center; }
 .check { display: flex; gap: 8px; align-items: center; font-size: 14px; }
+
+/* Logo */
+.brand .logo { height: 24px; width: auto; align-self: center; margin-right: -2px; }
+
+/* Install hint */
+.banner-actions { display: flex; gap: 6px; margin-left: auto; }
+.banner button.ghost { background: transparent; color: var(--accent); }
+.share-ico { width: 16px; height: 16px; vertical-align: -3px; fill: none; stroke: var(--accent); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }

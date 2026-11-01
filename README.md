@@ -22,6 +22,15 @@ Without the `VITE_FIREBASE_*` values the app runs in device-only mode (entries s
 - Firestore keeps a copy on each phone, so the app opens and accepts entries offline and syncs when back online.
 - "Use on this phone only" skips sign-in; signing in later offers to bring those entries into a new book.
 
+## Installing on a phone
+
+AlkanSave is an installable web app (no app store needed):
+
+- **Android (Chrome):** tap **Install** on the banner in the app, or ⋮ → **Install app**.
+- **iPhone (Safari):** tap **Share** → **Add to Home Screen**. Sign in with Google inside the installed app.
+
+`public/manifest.webmanifest` describes the app; `public/sw.js` saves the app's files so it opens offline. Icons in `public/icons/` were made from `design/alkansave-logo.jpg`.
+
 ## Security rules
 
 ```sh

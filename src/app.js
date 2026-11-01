@@ -1,5 +1,6 @@
 import { connect } from "./data/index.js";
 import { leaveDeviceOnly } from "./auth.js";
+import { isIOS, isStandalone } from "./device.js";
 
 // ---------- Reference data ----------
 const CATS = {
@@ -182,6 +183,7 @@ function drawChrome() {
   if (S.notice) b = `<div class="banner"><span class="notice">${esc(S.notice)}</span></div>`;
   else if (S.demo) b = `<div class="banner"><span>You're looking at sample data. Nothing you add here is saved.</span><button type="button" data-act="exit-demo">Back to our book</button></div>`;
   else if (!S.canWrite) b = `<div class="banner warn"><span>View only. Ask the book's owner to make you an Editor so you can log entries.</span></div>`;
+  else if (installOffer() && !installHintOff()) b = `<div class="banner">${installText()}<span class="banner-actions">${installOffer() === "prompt" ? `<button type="button" data-act="install">Install</button>` : ""}<button type="button" class="ghost" data-act="install-later">${installOffer() === "prompt" ? "Not now" : "Got it"}</button></span></div>`;
   $("#bannerWrap").innerHTML = b;
 
   document.querySelectorAll(".tab").forEach(t => {
@@ -338,7 +340,35 @@ function viewAccounts() {
   const liab = rows.filter(r => r.b < 0).reduce((s, r) => s + r.b, 0);
   return `<section class="card"><div class="acct-sum"><div><span>Assets</span><b class="num inc">${peso(assets)}</b></div><div><span>Owed</span><b class="num exp">${peso(-liab)}</b></div><div><span>Net</span><b class="num">${peso(assets + liab)}</b></div></div></section>
     <section class="card"><span class="label">Balances from every entry logged</span>${rows.map(r => `<div class="acct"><span class="ico" style="--c:${r.c}" aria-hidden="true">${r.e}</span><div><div class="nm">${esc(r.n)}</div><div class="sub">${esc(r.sub)}</div></div><span class="num ${r.b < 0 ? "exp" : r.b > 0 ? "inc" : ""}">${peso(r.b)}</span></div>`).join("")}</section>
-    <p class="meta">Balances start at ₱0 in this prototype. Log an "Other income" entry to set an account's starting amount.</p>` + familySection();
+    <p class="meta">Balances start at ₱0 in this prototype. Log an "Other income" entry to set an account's starting amount.</p>` + familySection() + installSection();
+}
+
+// ---------- Install as an app ----------
+const SHARE_ICON = `<svg class="share-ico" viewBox="0 0 24 24" aria-label="Share"><path d="M12 15V3M8 7l4-4 4 4"/><path d="M6 11H5v10h14V11h-1"/></svg>`;
+let installEvent = null;
+window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); installEvent = e; draw(); });
+window.addEventListener("appinstalled", () => { installEvent = null; draw(); });
+function installOffer() {
+  if (isStandalone()) return "";
+  return installEvent ? "prompt" : isIOS ? "ios" : "";
+}
+const installHintOff = () => { try { return localStorage.getItem("alkansave.installHint") === "off"; } catch { return false; } };
+function installText() {
+  return installOffer() === "ios"
+    ? `<span>Install AlkanSave on your iPhone: tap ${SHARE_ICON} <b>Share</b>, then <b>Add to Home Screen</b>.</span>`
+    : `<span>Install AlkanSave on this phone. It opens in one tap, even offline.</span>`;
+}
+function installSection() {
+  if (S.demo || !installOffer()) return "";
+  return `<section class="card"><span class="label">App</span>${installText()}
+    ${installOffer() === "prompt" ? `<div><button class="btn primary" type="button" data-act="install">Install AlkanSave</button></div>` : ""}</section>`;
+}
+async function install() {
+  if (!installEvent) return;
+  installEvent.prompt();
+  try { await installEvent.userChoice; } catch {}
+  installEvent = null;
+  draw();
 }
 
 function familySection() {
@@ -486,6 +516,8 @@ document.addEventListener("click", e => {
   else if (act === "invite") invite();
   else if (act === "signout") S.user.signOut();
   else if (act === "signin") leaveDeviceOnly();
+  else if (act === "install") install();
+  else if (act === "install-later") { try { localStorage.setItem("alkansave.installHint", "off"); } catch {} drawChrome(); }
 });
 
 let noticeTimer = 0;
@@ -512,6 +544,9 @@ $("#main").addEventListener("keydown", e => { if (e.key === "Enter" && e.target.
 $("#main").addEventListener("focusout", () => { setTimeout(() => { if (pending) draw(); }, 0); });
 
 // ---------- Boot ----------
+if ("serviceWorker" in navigator && import.meta.env.PROD) {
+  addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
+}
 fillAccounts();
 draw();
 (async () => {

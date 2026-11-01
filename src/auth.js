@@ -10,6 +10,7 @@ import {
 import { firebase } from "./firebase.js";
 import { firestoreDb, toStored } from "./data/firestore.js";
 import { readLocal, archiveLocal } from "./data/local.js";
+import { isIOS, isStandalone } from "./device.js";
 
 const DEVICE_ONLY = "alkansave.deviceOnly";
 const EMAIL = "alkansave.email";
@@ -54,7 +55,7 @@ function screen(html) {
     gateEl.className = "gate";
     document.body.append(gateEl);
   }
-  gateEl.innerHTML = `<div class="gate-card"><div class="brand">AlkanSave <small>family budget</small></div>${html}</div>`;
+  gateEl.innerHTML = `<div class="gate-card"><div class="brand"><img class="logo" src="/icons/mark.png" alt="" width="34" height="24">AlkanSave <small>family budget</small></div>${html}</div>`;
   return gateEl;
 }
 function closeGate() { if (gateEl) { gateEl.remove(); gateEl = null; } }
@@ -88,6 +89,7 @@ function signInScreen(auth, note) {
       <div class="gate-or"><span>or</span></div>
       <form class="gate-form"><label class="field"><span>Email</span><input type="email" name="email" required autocomplete="email" placeholder="you@example.com"></label>
       <button class="btn wide" type="submit">Email me a sign-in link</button></form>
+      ${isIOS && isStandalone() ? `<p class="meta">On iPhone, sign-in emails open in Safari instead of this app. Use Google to sign in here.</p>` : ""}
       <p class="err" role="alert">${esc(note || "")}</p>
       ${invited ? "" : `<button class="link" type="button" data-g="local">Use on this phone only, without an account</button>`}`);
     const err = el.querySelector(".err");

@@ -1,0 +1,19 @@
+{
+  "id": "/",
+  "name": "AlkanSave",
+  "short_name": "AlkanSave",
+  "description": "A shared family budget tracker in pesos. Log expenses from any phone and track monthly budgets together.",
+  "lang": "en-PH",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F1F4F9",
+  "theme_color": "#FFFFFF",
+  "categories": ["finance", "productivity"],
+  "icons": [
+    { "src": "/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
