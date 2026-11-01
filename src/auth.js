@@ -89,6 +89,9 @@ function signInScreen(auth, note) {
     el.querySelector('[data-g="google"]').onclick = async () => {
       err.textContent = "";
       const provider = new GoogleAuthProvider();
+      // Always show Google's account chooser. Otherwise a phone that once used someone else's Google
+      // account signs straight back into it, even after signing out of AlkanSave.
+      provider.setCustomParameters({ prompt: "select_account" });
       try { await signInWithPopup(auth, provider); }
       catch (e) {
         if (e.code === "auth/popup-blocked" || e.code === "auth/operation-not-supported-in-this-environment") signInWithRedirect(auth, provider);
@@ -297,7 +300,11 @@ function openSession(auth, fs, u, hid) {
   };
   const loadReminders = () => import("./reminders.js");
   // Signing out or leaving shouldn't leave this phone getting someone's bill reminders.
-  const stopReminders = () => loadReminders().then(m => m.disableReminders(hid, u.uid)).catch(() => {});
+  // Capped at 4 seconds so a slow or unsupported browser (e.g. Safari outside the installed app) can't stall it.
+  const stopReminders = () => Promise.race([
+    loadReminders().then(m => m.disableReminders(hid, u.uid)).catch(() => {}),
+    new Promise(r => setTimeout(r, 4000))
+  ]);
   return { db: firestoreDb(fs, hid), user, local: false };
 }
 
