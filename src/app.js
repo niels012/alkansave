@@ -198,7 +198,7 @@ function buildDemo() {
 }
 
 // ---------- Rendering ----------
-let pending = false;
+let pending = false, lastBanner = null;
 function draw() {
   const active = document.activeElement;
   if (active && active.closest && active.closest("#main input")) { pending = true; drawChrome(); return; }
@@ -212,8 +212,51 @@ function draw() {
   // Until the book has loaded, say so rather than showing empty months.
   if (!S.demo && !S.loaded) { main.innerHTML = `<div class="empty"><p>Opening your family book…</p></div>`; return; }
   main.innerHTML = v === "stats" ? viewStats() : v === "budget" ? viewBudget() : v === "accounts" ? viewAccounts() : viewTrans();
+  playAnims(main);
 }
 function paint() { draw(); refreshProfiles(); }
+
+// ---------- Motion ----------
+// Animations play only for things the person just did (switching tabs, opening a card), never for
+// redraws caused by live updates, so the screen doesn't flicker when the family logs something.
+const calm = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+const animNext = new Set(); // what the next draw() should animate: "view", "prev", "next", "filters", "starts", "search"
+function animate(...what) { if (!calm()) what.forEach(w => animNext.add(w)); }
+function replay(el, cls) {
+  if (!el) return;
+  el.classList.remove(cls);
+  void el.offsetWidth; // restart the animation
+  el.classList.add(cls);
+  el.addEventListener("animationend", () => el.classList.remove(cls), { once: true });
+}
+// Grows a just-inserted element from zero height to its natural height.
+function growOpen(el) {
+  if (!el) return;
+  const h = el.scrollHeight;
+  Object.assign(el.style, { height: "0px", opacity: "0", overflow: "hidden" });
+  void el.offsetWidth;
+  Object.assign(el.style, { transition: "height .25s ease, opacity .25s ease", height: h + "px", opacity: "1" });
+  setTimeout(() => Object.assign(el.style, { height: "", opacity: "", overflow: "", transition: "" }), 270);
+}
+// Folds an element down to zero height, then calls done() (which usually redraws without it).
+function foldShut(el, done) {
+  if (!el || calm()) { done(); return; }
+  Object.assign(el.style, { height: el.offsetHeight + "px", overflow: "hidden" });
+  void el.offsetWidth;
+  Object.assign(el.style, { transition: "height .2s ease, opacity .2s ease", height: "0px", opacity: "0" });
+  setTimeout(done, 210);
+}
+function playAnims(main) {
+  if (!animNext.size) return;
+  if (["view", "prev", "next"].some(k => animNext.has(k))) main.classList.remove("anim-view", "anim-prev", "anim-next"); // a quick second tap restarts cleanly
+  if (animNext.has("view")) replay(main, "anim-view");
+  if (animNext.has("prev")) replay(main, "anim-prev");
+  if (animNext.has("next")) replay(main, "anim-next");
+  if (animNext.has("filters")) growOpen(main.querySelector(".filters"));
+  if (animNext.has("starts")) growOpen(main.querySelector(".fold-body"));
+  if (animNext.has("search")) replay(main.querySelector(".search"), "anim-grow");
+  animNext.clear();
+}
 
 function drawChrome() {
   $("#monthLabel").textContent = monthLabel(S.month);
@@ -232,7 +275,8 @@ function drawChrome() {
   else if (S.demo) b = `<div class="banner"><span>You're looking at sample data. Nothing you add here is saved.</span><button type="button" data-act="exit-demo">Back to our book</button></div>`;
   else if (!S.canWrite) b = `<div class="banner warn"><span>View only. Ask the book's owner to make you an Editor so you can log entries.</span></div>`;
   else if (installOffer() && !installHintOff()) b = `<div class="banner">${installText()}<span class="banner-actions">${installOffer() === "prompt" ? `<button type="button" data-act="install">Install</button>` : ""}<button type="button" class="ghost" data-act="install-later">${installOffer() === "prompt" ? "Not now" : "Got it"}</button></span></div>`;
-  $("#bannerWrap").innerHTML = b;
+  // Only touch the banner when it changes, so it fades in once instead of on every redraw.
+  if (b !== lastBanner) { lastBanner = b; $("#bannerWrap").innerHTML = b; replay($("#bannerWrap .banner"), "anim-fade"); }
 
   document.querySelectorAll(".tab").forEach(t => {
     const on = t.dataset.view === S.view || (t.dataset.view === "daily" && S.view === "calendar");
@@ -563,38 +607,65 @@ function sharedBalances() {
   const st = sharedStarts();
   return SHARED_ACCOUNTS.map(a => ({ ...a, b: (st[a.k] || 0) + flow(txAll(), a.k) }));
 }
-// A person's own accounts: their starting amount plus the entries they logged.
-function balancesOf(owner) {
-  const st = startsOf(owner);
-  const mine = txAll().filter(t => t.by === owner);
-  const rows = PERSONAL_ACCOUNTS.map(a => ({ ...a, b: (st[a.k] || 0) + flow(mine, a.k) }));
-  for (const a of OLD_ACCOUNTS) { const b = (st[a.k] || 0) + flow(mine, a.k); if (b) rows.push({ ...a, b }); }
-  return rows;
+// A person's balance in one of their own accounts: their starting amount plus the entries they logged.
+function personalBalance(owner, k) {
+  return (startsOf(owner)[k] || 0) + flow(txAll().filter(t => t.by === owner), k);
 }
-const ownerName = o => who(o).name + (o === S.meId && S.user ? " (you)" : "");
 const SHARED_BADGE = `<span class="av shared-av" aria-hidden="true">👪</span>`;
+// Column heading: first name ("You" before a name is known).
+const firstName = o => {
+  const p = S.profiles[o];
+  const name = S.demo || !S.user ? who(o).name : (p && p.name) || who(o).name;
+  return name.trim().split(/\s+/)[0];
+};
 
+// Balances side by side: one row per account, one column per person, and a family total.
+// Personal accounts first (plus old Maya/Bank while anyone still has money in them), then the shared ones.
 function viewAccounts() {
-  const groups = [{ head: SHARED_BADGE, name: "Shared", rows: sharedBalances() }]
-    .concat(accountOwners().map(o => ({ head: avatar(o), name: ownerName(o), rows: balancesOf(o) })));
-  const all = groups.flatMap(g => g.rows);
-  const assets = all.filter(r => r.b > 0).reduce((s, r) => s + r.b, 0);
-  const liab = all.filter(r => r.b < 0).reduce((s, r) => s + r.b, 0);
+  const owners = accountOwners();
   const cls = b => b < 0 ? "exp" : b > 0 ? "inc" : "";
-  const balances = groups.map(g => {
-    const net = g.rows.reduce((s, r) => s + r.b, 0);
-    return `<div class="acct-owner">${g.head}<span class="nm">${esc(g.name)}</span><span class="num ${cls(net)}">${peso(net)}</span></div>
-      ${g.rows.map(r => `<div class="acct">${acctIcon(r)}<div class="nm">${esc(r.n)}</div><span class="num ${cls(r.b)}">${peso(r.b)}</span></div>`).join("")}`;
-  }).join("");
+  const money = b => `<span class="num ${cls(b)}">${b ? peso(b) : "₱0"}</span>`;
+  const accts = [...PERSONAL_ACCOUNTS, ...OLD_ACCOUNTS.filter(a => owners.some(o => personalBalance(o, a.k)))];
+  const grid = accts.map(a => ({ a, cells: owners.map(o => personalBalance(o, a.k)) }));
+  const shared = sharedBalances();
+  const values = grid.flatMap(r => r.cells).concat(shared.map(r => r.b));
+  const assets = values.filter(b => b > 0).reduce((s, b) => s + b, 0);
+  const liab = values.filter(b => b < 0).reduce((s, b) => s + b, 0);
+  const ownerNets = owners.map((_, i) => grid.reduce((s, r) => s + r.cells[i], 0));
+  const name = a => `<th scope="row"><span class="acct-name">${acctIcon(a)}<span>${esc(a.n)}</span></span></th>`;
+  // Rows in the order of the account list: Cash, GCash, GoTyme, MariBank, (old accounts), Credit card.
+  // Shared accounts have one family amount, shown in Total.
+  const personalRow = r => `<tr>${name(r.a)}${r.cells.map(b => `<td class="pc">${money(b)}</td>`).join("")}<td class="tot">${money(r.cells.reduce((s, b) => s + b, 0))}</td></tr>`;
+  const sharedRow = r => `<tr>${name(r)}<td colspan="${owners.length}" class="shared-cell">shared</td><td class="tot">${money(r.b)}</td></tr>`;
+  const sharedOf = k => shared.find(r => r.k === k);
+  const tableRows = [
+    sharedRow(sharedOf("cash")),
+    ...grid.map(personalRow),
+    sharedRow(sharedOf("card"))
+  ].join("");
+
+  const table = `<div class="bal-wrap"><table class="bal-table">
+    <thead><tr><th scope="col"><span class="sr-only">Account</span></th>${owners.map(o => `<th scope="col" class="pc"><span class="who-col">${avatar(o)}<span>${esc(firstName(o))}</span></span></th>`).join("")}<th scope="col">Total</th></tr></thead>
+    <tbody>${tableRows}</tbody>
+    <tfoot><tr><th scope="row">Net</th>${ownerNets.map(b => `<td class="pc">${money(b)}</td>`).join("")}<td class="tot">${money(assets + liab)}</td></tr></tfoot>
+  </table></div>`;
+
   return `<section class="card"><div class="acct-sum"><div><span>Assets</span><b class="num inc">${peso(assets)}</b></div><div><span>Owed</span><b class="num exp">${peso(-liab)}</b></div><div><span>Net</span><b class="num">${peso(assets + liab)}</b></div></div></section>
-    <section class="card"><span class="label">Balances</span>${balances}</section>`
+    <section class="card"><span class="label">Balances</span>${table}</section>`
     + startSection() + familySection() + exportSection() + installSection();
 }
 
 // What each account held before the family started logging. Anyone who can edit sets the shared Cash and
 // card; everyone sets their own GCash, GoTyme and MariBank. The card is entered as the amount owed.
+// The card folds down to just its heading; the on/off switch is remembered on this phone.
+const startsShown = () => { try { return localStorage.getItem("alkansave.showStarts") === "1"; } catch { return false; } };
 function startSection() {
   if (S.demo) return "";
+  const on = startsShown();
+  // The whole heading is the toggle; the arrow points down when folded and up when open.
+  const head = `<button type="button" class="card-head fold" data-act="starts-toggle" aria-expanded="${on}"><span class="label">Starting balances</span>
+    <svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>`;
+  if (!on) return `<section class="card">${head}</section>`;
   const row = (a, st, editable, attr) => {
     const owed = a.k === "card";
     const v = st[a.k] ? (owed ? -st[a.k] : st[a.k]) : 0;
@@ -605,10 +676,12 @@ function startSection() {
   };
   const shared = `<div class="acct-owner">${SHARED_BADGE}<span class="nm">Shared</span></div>`
     + SHARED_ACCOUNTS.map(a => row(a, sharedStarts(), S.canWrite, "data-start-shared")).join("");
-  const people = accountOwners().map(o => `<div class="acct-owner">${avatar(o)}<span class="nm">${esc(ownerName(o))}</span></div>`
-    + PERSONAL_ACCOUNTS.map(a => row(a, startsOf(o), o === S.meId && S.canWrite, "data-start")).join("")).join("");
-  return `<section class="card"><span class="label">Starting balances</span>
-    <p class="meta">What was already in each account before you started logging. Anyone can set the shared Cash and card; everyone enters their own GCash, GoTyme and MariBank.</p>${shared}${people}</section>`;
+  // Only your own personal accounts here; everyone else sets (and sees) theirs on their own phone.
+  const me = S.meId || "local";
+  const mine = `<div class="acct-owner">${avatar(me)}<span class="nm">Your accounts</span></div>`
+    + PERSONAL_ACCOUNTS.map(a => row(a, startsOf(me), true, "data-start")).join("");
+  return `<section class="card">${head}<div class="fold-body">
+    <p class="meta">What was already in each account before you started logging. The shared Cash and card are for the whole family; your GCash, GoTyme and MariBank are just yours.</p>${shared}${mine}</div></section>`;
 }
 
 function exportSection() {
@@ -995,11 +1068,15 @@ async function leaveBook() {
 // keeps its cursor. keepPlace: scroll up by the panel's height so the list doesn't jump under your finger.
 function closeFilters(keepPlace) {
   S.showFilters = false;
-  const panel = document.querySelector(".filters");
-  if (panel) {
+  const panel = document.querySelector(".filters:not(.closing)");
+  if (panel && keepPlace) {
+    // Closing because of a scroll: remove it at once, or the animation would fight the finger.
     const h = panel.offsetHeight + parseFloat(getComputedStyle($("#main")).rowGap || 0);
     panel.remove();
-    if (keepPlace) window.scrollBy(0, -h);
+    window.scrollBy(0, -h);
+  } else if (panel) {
+    panel.classList.add("closing"); // no longer the open panel while it folds away
+    foldShut(panel, () => panel.remove());
   }
   const btn = document.querySelector('[data-act="filters"]');
   if (btn) { btn.setAttribute("aria-pressed", "false"); btn.setAttribute("aria-expanded", "false"); }
@@ -1142,10 +1219,10 @@ document.addEventListener("click", e => {
     return;
   }
   const v = e.target.closest("[data-view]");
-  if (v) { S.view = v.dataset.view; S.armed = ""; if (!S.q) S.searchOpen = false; try { localStorage.setItem("alkansave.view", S.view); } catch {} draw(); window.scrollTo(0, 0); return; }
+  if (v) { if (v.dataset.view !== S.view) animate("view"); S.view = v.dataset.view; S.armed = ""; if (!S.q) S.searchOpen = false; try { localStorage.setItem("alkansave.view", S.view); } catch {} draw(); window.scrollTo(0, 0); return; }
   const a = e.target.closest("[data-act]"); if (!a) return;
   const act = a.dataset.act;
-  if (act === "prev" || act === "next") { S.month = shiftMonth(S.month, act === "prev" ? -1 : 1); draw(); }
+  if (act === "prev" || act === "next") { S.month = shiftMonth(S.month, act === "prev" ? -1 : 1); animate(act); draw(); }
   else if (act === "add") openSheet(null);
   else if (act === "edit") { closeRow(); const t = txAll().find(x => x.id === a.dataset.id); if (t) openSheet(t); }
   else if (act === "tx-del") deleteFromRow(a);
@@ -1165,13 +1242,23 @@ document.addEventListener("click", e => {
   else if (act === "rec-edit") { const r = S.recurring.find(x => x.id === a.dataset.id); if (r) openRecSheet(r); }
   else if (act === "member-remove") removeMember(a.dataset.id);
   else if (act === "leave") leaveBook();
-  else if (act === "filters") { S.showFilters = !S.showFilters; filterScrollFrom = S.showFilters ? scrollY : null; draw(); }
+  else if (act === "filters") {
+    if (S.showFilters) closeFilters(false); // folds the panel away
+    else { S.showFilters = true; filterScrollFrom = scrollY; animate("filters"); draw(); }
+  }
   // Focus inside the tap itself so phones bring up the keyboard right away.
-  else if (act === "search-open") { S.searchOpen = true; draw(); const q = $("#q"); if (q) q.focus(); }
-  else if (act === "search-close") { S.q = ""; S.searchOpen = false; draw(); }
+  else if (act === "search-open") { S.searchOpen = true; animate("search"); draw(); const q = $("#q"); if (q) q.focus(); }
+  else if (act === "search-close") { const q = $("#q"); if (q) q.blur(); S.q = ""; S.searchOpen = false; draw(); }
   else if (act === "scope") { S.f.scope = a.dataset.scope; draw(); }
   else if (act === "clear-filters") { S.q = ""; S.f = { type: "", cat: "", who: "", acct: "", scope: "month" }; draw(); }
   else if (act === "rem-on") turnOnReminders();
+  else if (act === "starts-toggle") {
+    const setShown = on => { try { localStorage.setItem("alkansave.showStarts", on ? "1" : "0"); } catch {} };
+    if (startsShown()) {
+      a.setAttribute("aria-expanded", "false"); // turn the arrow while the card folds
+      foldShut(document.querySelector(".fold-body"), () => { setShown(false); draw(); });
+    } else { setShown(true); animate("starts"); draw(); }
+  }
   else if (act === "rem-off") turnOffReminders();
 });
 

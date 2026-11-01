@@ -381,3 +381,51 @@ button.rec[disabled] { cursor: default; color: inherit; }
 .acct-owner + .acct { border-top: 0; }
 .acct .muted-num { color: var(--muted); font-weight: 600; }
 .av.shared-av { background: var(--sunk); font-size: 14px; }
+
+/* Balances table: accounts down the side, one column per family member, then the total */
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.bal-wrap { overflow-x: auto; margin-inline: -4px; }
+.bal-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.bal-table th, .bal-table td { padding: 8px 4px; text-align: right; white-space: nowrap; border-top: 1px solid var(--line); }
+.bal-table thead th { border-top: 0; padding-top: 0; font-size: 12px; font-weight: 700; color: var(--muted); }
+.bal-table th[scope="row"], .bal-table .bal-group th { text-align: left; font-weight: 600; color: var(--ink); }
+.bal-table .acct-name { display: inline-flex; align-items: center; gap: 8px; }
+.bal-table .ico { width: 28px; height: 28px; border-radius: 9px; font-size: 14px; }
+.bal-table .ico.logo img { border-radius: 9px; }
+/* Person columns: photo on top, first name underneath; their amounts centred under them */
+.bal-table .pc { text-align: center; }
+.bal-table thead th { vertical-align: bottom; }
+.bal-table .who-col { display: inline-flex; flex-direction: column; align-items: center; gap: 4px; font-size: 12px; color: var(--ink); }
+.bal-table .who-col .av { width: 32px; height: 32px; font-size: 12px; }
+.bal-table .num { font-weight: 600; }
+.bal-table .tot .num { font-weight: 800; }
+.bal-table .bal-group th { padding-top: 14px; font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
+.bal-table .bal-group .av { width: 24px; height: 24px; }
+.bal-table .shared-cell { text-align: center; color: var(--muted); font-size: 11.5px; font-style: italic; }
+.bal-table tfoot th, .bal-table tfoot td { border-top: 2px solid var(--line); font-weight: 800; }
+.bal-table tfoot th { text-align: left; }
+.bal-table tfoot .num { font-weight: 800; }
+
+/* Card heading that folds the card open/closed (Starting balances) */
+.card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.card-head.fold { width: 100%; border: 0; background: none; padding: 2px 0; text-align: left; color: inherit; }
+.card-head .chev { width: 22px; height: 22px; flex: none; fill: none; stroke: var(--muted); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; transition: transform .2s ease; }
+.card-head[aria-expanded="true"] .chev { transform: rotate(180deg); }
+
+/* ---------- Motion (played by src/app.js only for what the person just did) ---------- */
+.fold-body { display: grid; gap: 12px; }
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes view-in { from { opacity: 0; transform: translateY(10px); } }
+  @keyframes from-left { from { opacity: 0; transform: translateX(-18px); } }
+  @keyframes from-right { from { opacity: 0; transform: translateX(18px); } }
+  @keyframes grow-in { from { opacity: 0; transform: scaleX(.85); } }
+  @keyframes fade-in { from { opacity: 0; transform: translateY(-4px); } }
+  @keyframes drop-in { from { opacity: 0; transform: translateY(-6px); } }
+  #main.anim-view { animation: view-in .26s cubic-bezier(.2, .8, .2, 1); }
+  #main.anim-prev { animation: from-left .24s cubic-bezier(.2, .8, .2, 1); }
+  #main.anim-next { animation: from-right .24s cubic-bezier(.2, .8, .2, 1); }
+  .search.anim-grow { animation: grow-in .22s cubic-bezier(.2, .8, .2, 1); transform-origin: right center; }
+  .banner.anim-fade { animation: fade-in .25s ease; }
+  /* Category grid in the entry form drops open each time it's shown */
+  #f-cats:not([hidden]) { animation: drop-in .2s ease; }
+}
