@@ -247,7 +247,8 @@ function familyCard() {
 // One entry: category on the left, note (or category) with account and person underneath, amount on the right.
 // Swiping the row left uncovers Edit and Delete behind it (see "Swipe an entry" below); view-only members can't swipe.
 const EDIT_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M14 6l4 4"/></svg>`;
-const TRASH_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>`;
+const TRASH_ICON = `<svg class="bin" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>`;
+const CHECK_ICON = `<svg class="ok" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>`;
 function txRow(t) {
   const c = catOf(t.type, t.cat);
   const acct = t.type === "transfer" ? `${acctOf(t.acct).n} → ${acctOf(t.to).n}` : acctOf(t.acct).n;
@@ -256,8 +257,8 @@ function txRow(t) {
   const id = esc(t.id);
   return `<div class="tx-wrap"${ro ? ` data-ro="1"` : ""}>
     ${ro ? "" : `<div class="tx-actions">
-      <button type="button" class="tx-del" data-act="tx-del" data-id="${id}">${TRASH_ICON}<span class="lbl">Delete</span></button>
-      <button type="button" class="tx-edit" data-act="edit" data-id="${id}">${EDIT_ICON}<span>Edit</span></button>
+      <button type="button" class="tx-del" data-act="tx-del" data-id="${id}" aria-label="Delete">${TRASH_ICON}${CHECK_ICON}</button>
+      <button type="button" class="tx-edit" data-act="edit" data-id="${id}" aria-label="Edit">${EDIT_ICON}</button>
     </div>`}
     <div class="tx">
       <span class="tx-cat"><span class="e" aria-hidden="true">${c.e}</span><span class="n">${esc(c.n)}</span></span>
@@ -911,8 +912,9 @@ addEventListener("scroll", () => {
 // One row is open at a time; tapping anywhere, scrolling, or swiping back closes it.
 // Dragging past the buttons stretches Edit after the finger; past FULL_SWIPE of the row's width,
 // Delete tucks away, and letting go there opens the edit form.
-const ACTION_W = 68;            // one button's width (.tx-actions button in styles.css)
-const ACTIONS_W = ACTION_W * 2; // Delete + Edit
+// Round buttons: matches .tx-actions in styles.css (42px circles, 12px around and between them).
+const BTN = 42, PAD = 12;
+const ACTIONS_W = PAD + BTN + PAD + BTN + PAD; // 120: Delete + Edit
 const FULL_SWIPE = 0.6;
 let swipe = null, openRow = null, swipeHinted = false, delTimer = 0;
 function swipeBusy() { return !!(swipe && swipe.sideways && swipe.wrap.isConnected) || !!(openRow && openRow.isConnected); }
@@ -922,11 +924,13 @@ const actionsWidth = () => ACTIONS_W;
 function setRowOffset(wrap, x, animate) {
   wrap.querySelector(".tx").style.transform = x ? `translateX(${x}px)` : "";
   wrap.classList.toggle("dragging", !animate);
-  // Edit takes up whatever is uncovered beyond the two buttons (all of it in a full swipe).
+  wrap.classList.toggle("open", x < 0); // rounds the entry's right edge while it's slid over
+  // The Edit circle stretches into a pill over whatever is uncovered beyond the two buttons
+  // (all of it in a full swipe, when Delete tucks away).
   const edit = wrap.querySelector(".tx-edit");
   const full = -x > wrap.offsetWidth * FULL_SWIPE;
   wrap.classList.toggle("full", full);
-  if (edit) edit.style.width = -x > ACTIONS_W ? `${full ? -x : -x - ACTION_W}px` : "";
+  if (edit) edit.style.width = -x > ACTIONS_W ? `${full ? -x - 2 * PAD : -x - (ACTIONS_W - BTN)}px` : "";
 }
 // Full swipe: slide the entry the rest of the way out, open its edit form, then put the row back behind it.
 function fullSwipeEdit(wrap) {
@@ -946,7 +950,7 @@ function fullSwipeEdit(wrap) {
 }
 function disarmDelete(wrap) {
   const b = wrap && wrap.querySelector(".tx-del.armed");
-  if (b) { b.classList.remove("armed"); b.querySelector(".lbl").textContent = "Delete"; }
+  if (b) { b.classList.remove("armed"); b.setAttribute("aria-label", "Delete"); }
 }
 function closeRow() {
   if (!openRow) return;
@@ -997,12 +1001,13 @@ addEventListener("pointerup", endSwipe);
 addEventListener("pointercancel", endSwipe);
 addEventListener("scroll", () => { if (openRow && !swipe) closeRow(); }, { passive: true });
 
-// Delete asks once more ("Confirm") before removing the entry.
+// Delete asks once more before removing the entry: the trash turns into a ✓ to tap.
 async function deleteFromRow(btn) {
   const wrap = rowOf(btn), id = btn.dataset.id;
   if (!btn.classList.contains("armed")) {
     btn.classList.add("armed");
-    btn.querySelector(".lbl").textContent = "Confirm";
+    btn.setAttribute("aria-label", "Tap again to delete");
+    flash("Tap ✓ to delete this entry.", 4000);
     clearTimeout(delTimer);
     delTimer = setTimeout(() => disarmDelete(wrap), 4000);
     return;
