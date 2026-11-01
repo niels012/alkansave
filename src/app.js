@@ -683,7 +683,7 @@ function openSheet(t) {
   const meta = $("#f-meta");
   if (t) { meta.hidden = false; meta.textContent = `Logged by ${who(t.by).name}${t.createdAt ? " · " + ago(t.createdAt) : ""}${t.updatedAt && t.updatedBy ? ` · last edited by ${who(t.updatedBy).name}` : ""}`; }
   else meta.hidden = true;
-  $("#scrim").hidden = false;
+  showSheet();
   // New entry: put the cursor in the amount right away, still inside the tap, so iPhones show the
   // number keyboard too (they ignore focus that happens after a delay). Editing doesn't pop it up.
   if (!t) $("#f-amount").focus();
@@ -702,9 +702,27 @@ function openRecSheet(r) {
   const meta = $("#f-meta");
   meta.hidden = false;
   meta.textContent = `Set up by ${who(r.createdBy).name} · next added ${recNext(r)}. Changes apply from then on; entries already added stay as they are.`;
-  $("#scrim").hidden = false;
+  showSheet();
 }
-function closeSheet() { $("#scrim").hidden = true; S.editing = null; S.editingRec = null; $("#fab").focus(); }
+// The form blooms out from the bottom centre when shown (CSS on .scrim) and shrinks back into it here.
+function showSheet() {
+  const scrim = $("#scrim");
+  scrim.classList.remove("closing");
+  scrim.hidden = false;
+}
+function closeSheet() {
+  const scrim = $("#scrim");
+  S.editing = null; S.editingRec = null;
+  if (scrim.hidden) return;
+  const done = () => { if (scrim.classList.contains("closing")) { scrim.classList.remove("closing"); scrim.hidden = true; } };
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) { scrim.hidden = true; }
+  else {
+    scrim.classList.add("closing");
+    scrim.addEventListener("animationend", done, { once: true });
+    setTimeout(done, 300); // in case the animation doesn't run
+  }
+  $("#fab").focus({ preventScroll: true });
+}
 
 async function saveRecurringEdit(type, amount, catEl) {
   const err = $("#f-err");
