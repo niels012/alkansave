@@ -74,7 +74,7 @@ const S = {
   editing: null, delArmed: false, notice: "", canSignIn: false,
   recurring: [], recLoaded: false, legacyStart: {}, legacyStartBy: null, sharedStart: null, armed: "",
   editingRec: null, q: "", searchOpen: false, showFilters: false, f: { type: "", cat: "", who: "", acct: "", scope: "month" },
-  rem: "", remBusy: false
+  rem: "", remBusy: false, statOpen: null
 };
 try { const h = location.hash.slice(1); if (VIEWS.includes(h)) S.view = h; } catch {}
 // A tapped bill reminder opens "/#budget" in an already-open app.
@@ -142,7 +142,8 @@ function who(id) {
 function avatar(id, sm) {
   const p = who(id);
   const initials = esc((p.name || "?").trim().split(/\s+/).map(w => w[0]).slice(0, 2).join("").toUpperCase());
-  return `<span class="av${sm ? " sm" : ""}" style="--c:${esc(p.color)}">${p.avatar ? `<img src="${esc(p.avatar)}" alt="">` : initials}</span>`;
+  // The photo sits over the initials; if it fails to load (expired link, offline) it removes itself.
+  return `<span class="av${sm ? " sm" : ""}" style="--c:${esc(p.color)}">${initials}${p.avatar ? `<img src="${esc(p.avatar)}" alt="" onerror="this.remove()">` : ""}</span>`;
 }
 let profSeq = 0, profKey = "";
 function refreshProfiles() {
@@ -198,7 +199,10 @@ function buildDemo() {
 }
 
 // ---------- Rendering ----------
-let pending = false, lastBanner = null;
+let pending = false, lastBanner = null, lastToast = "";
+const toast = Object.assign(document.createElement("div"), { className: "toast", hidden: true });
+toast.setAttribute("role", "status");
+document.body.append(toast);
 function draw() {
   const active = document.activeElement;
   if (active && active.closest && active.closest("#main input")) { pending = true; drawChrome(); return; }
@@ -256,6 +260,7 @@ function playAnims(main) {
   if (animNext.has("filters")) growOpen(main.querySelector(".filters"));
   if (animNext.has("starts")) growOpen(main.querySelector(".fold-body"));
   if (animNext.has("search")) replay(main.querySelector(".search"), "anim-grow");
+  if (animNext.has("statcat")) growOpen(main.querySelector(".cat-tx"));
   animNext.clear();
 }
 
@@ -271,9 +276,16 @@ function drawChrome() {
   live.dataset.s = ls;
   live.lastElementChild.textContent = { live: "Live · synced", saving: "Saving…", connecting: "Connecting…", error: "Sync paused", preview: "Sample data", local: "Saved on this device", offline: "Offline · saved on phone" }[ls] || "Connecting…";
 
+  // Short messages (entry added, deleted, hints) pop up near the bottom so they're seen wherever you've scrolled.
+  if (S.notice !== lastToast) {
+    lastToast = S.notice;
+    toast.textContent = S.notice;
+    toast.hidden = !S.notice;
+    if (S.notice) replay(toast, "anim-toast");
+  }
+
   let b = "";
-  if (S.notice) b = `<div class="banner"><span class="notice">${esc(S.notice)}</span></div>`;
-  else if (S.demo) b = `<div class="banner"><span>You're looking at sample data. Nothing you add here is saved.</span><button type="button" data-act="exit-demo">Back to our book</button></div>`;
+  if (S.demo) b = `<div class="banner"><span>You're looking at sample data. Nothing you add here is saved.</span><button type="button" data-act="exit-demo">Back to our book</button></div>`;
   else if (!S.canWrite) b = `<div class="banner warn"><span>View only. Ask the book's owner to make you an Editor so you can log entries.</span></div>`;
   else if (installOffer() && !installHintOff()) b = `<div class="banner">${installText()}<span class="banner-actions">${installOffer() === "prompt" ? `<button type="button" data-act="install">Install</button>` : ""}<button type="button" class="ghost" data-act="install-later">${installOffer() === "prompt" ? "Not now" : "Got it"}</button></span></div>`;
   // Only touch the banner when it changes, so it fades in once instead of on every redraw.
@@ -440,10 +452,16 @@ function calendar(mt) {
   return `<div class="cal"><div class="cal-g">${cells}</div></div>` + (sel.length ? dayGroup(S.selDay, sel) : `<p class="meta">Nothing logged on ${new Date(S.selDay + "T00:00:00").toLocaleDateString("en-PH", { month: "long", day: "numeric" })}.</p>`);
 }
 
-function donut(parts, total, label) {
+// Donut of categories; each slice opens its category's entries (open: the category key shown, others fade).
+function donut(parts, total, label, open) {
   const r = 64, C = 2 * Math.PI * r;
   let off = 0;
-  const segs = parts.map(p => { const len = total ? (p.v / total) * C : 0; const s = `<circle cx="80" cy="80" r="${r}" fill="none" stroke="${p.c}" stroke-width="22" stroke-dasharray="${len.toFixed(2)} ${(C - len).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 80 80)"/>`; off += len; return s; }).join("");
+  const segs = parts.map(p => {
+    const len = total ? (p.v / total) * C : 0;
+    const s = `<circle class="seg-slice${open && open !== p.k ? " dim" : ""}" data-act="stat-cat" data-cat="${esc(p.k)}" cx="80" cy="80" r="${r}" fill="none" stroke="${p.c}" stroke-width="22" stroke-dasharray="${len.toFixed(2)} ${(C - len).toFixed(2)}" stroke-dashoffset="${(-off).toFixed(2)}" transform="rotate(-90 80 80)"/>`;
+    off += len;
+    return s;
+  }).join("");
   return `<svg viewBox="0 0 160 160" role="img" aria-label="${esc(label)}"><circle cx="80" cy="80" r="${r}" fill="none" stroke="var(--sunk)" stroke-width="22"/>${segs}
     <text x="80" y="76" text-anchor="middle" style="fill:var(--muted);font-family:var(--body)" font-size="11">Total</text>
     <text x="80" y="95" text-anchor="middle" style="fill:var(--ink)" font-size="16" class="donut-mid">${esc(peso(total))}</text></svg>`;
@@ -457,13 +475,26 @@ function viewStats() {
   if (!mt.length) return seg + `<div class="empty"><h2>No ${type === "expense" ? "expenses" : "income"} in ${esc(monthLabel(S.month))}</h2><p>Stats fill in as your family logs entries.</p></div>`;
   const byCat = {};
   mt.forEach(t => byCat[t.cat] = (byCat[t.cat] || 0) + t.amount);
-  const parts = Object.entries(byCat).map(([k, v]) => ({ ...catOf(type, k), v })).sort((a, b) => b.v - a.v);
-  const legend = parts.map(p => `<div class="lg" style="--c:${p.c}"><span class="pct num">${Math.round(p.v / total * 100)}%</span><span class="n">${p.e} ${esc(p.n)}</span><span class="num">${peso(p.v)}</span></div>`).join("");
+  const parts = Object.entries(byCat).map(([k, v]) => ({ ...catOf(type, k), k, v })).sort((a, b) => b.v - a.v);
+  const open = parts.some(p => p.k === S.statOpen) ? S.statOpen : null;
+  // Each category opens to list its entries this month (newest first).
+  const entries = k => mt.filter(t => t.cat === k).sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt).map(t => {
+    const d = new Date(t.date + "T00:00:00");
+    const acct = t.type === "transfer" ? `${acctOf(t.acct).n} → ${acctOf(t.to).n}` : acctOf(t.acct).n;
+    return `<div class="ctx"><span class="ctx-d"><b>${d.getDate()}</b>${d.toLocaleDateString("en-PH", { weekday: "short" })}</span>
+      <span class="ctx-m"><span class="t">${esc(t.note || catOf(t.type, t.cat).n)}</span><span class="s">${esc(acct)} · ${esc(who(t.by).name)}</span></span>
+      <span class="num ${type === "income" ? "inc" : "exp"}">${peso(t.amount)}</span></div>`;
+  }).join("");
+  const legend = parts.map(p => `<button type="button" class="lg${open === p.k ? " open" : ""}" data-act="stat-cat" data-cat="${esc(p.k)}" aria-expanded="${open === p.k}" style="--c:${p.c}">
+      <span class="pct num">${Math.round(p.v / total * 100)}%</span><span class="n">${p.e} ${esc(p.n)}</span><span class="num">${peso(p.v)}</span>
+      <svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>
+    ${open === p.k ? `<div class="cat-tx">${entries(p.k)}</div>` : ""}`).join("");
   const byWho = {};
   mt.forEach(t => { const k = t.by || "unknown"; byWho[k] = (byWho[k] || 0) + t.amount; });
   const max = Math.max(...Object.values(byWho));
   const whoRows = Object.entries(byWho).sort((a, b) => b[1] - a[1]).map(([id, v]) => `<div class="who-row">${avatar(id === "unknown" ? null : id)}<span class="nm">${esc(who(id === "unknown" ? null : id).name)}</span><span class="num">${peso(v)}</span><div class="meter"><i style="width:${(v / max * 100).toFixed(1)}%;--c:${esc(who(id === "unknown" ? null : id).color)}"></i></div></div>`).join("");
-  return seg + `<section class="card"><span class="label">By category</span><div class="donut-wrap">${donut(parts, total, `${type} by category`)}<div class="legend">${legend}</div></div></section>
+  return seg + `<section class="card"><span class="label">By category</span><div class="donut-wrap">${donut(parts, total, `${type} by category`, open)}<div class="legend">${legend}</div></div>
+    <p class="meta">Tap a category to see its entries.</p></section>
     <section class="card"><span class="label">${type === "expense" ? "Who spent" : "Who earned"} · ${esc(monthLabel(S.month))}</span>${whoRows}</section>`;
 }
 
@@ -925,10 +956,15 @@ sheet.addEventListener("submit", async e => {
   };
   if (data.date.slice(0, 7) !== S.month) S.month = data.date.slice(0, 7);
   if (S.view === "calendar") S.selDay = data.date;
+  // Confirmation banner, e.g. "✓ ₱145 expense added · Groceries · Cash".
+  const repeats = !prev && type !== "transfer" && $("#f-repeat").checked;
+  const where = type === "transfer" ? `${acctOf(acct).n} → ${acctOf(to).n}` : `${catOf(type, data.cat).n} · ${acctOf(acct).n}`;
+  const saved = prev ? "✓ Entry updated"
+    : `✓ ${peso(data.amount)} ${type} added · ${where}${repeats ? ` · repeats on the ${recWhen(Number(date.slice(8)))}` : ""}`;
   if (S.demo) {
     const row = { id: prev ? prev.id : "demo" + Date.now(), ...data };
     S.demoTx = prev ? S.demoTx.map(t => t.id === prev.id ? row : t) : [...S.demoTx, row];
-    closeSheet(); paint(); return;
+    closeSheet(); paint(); flash(saved, 3500); return;
   }
   const btn = $("#f-save"); btn.disabled = true;
   try {
@@ -945,6 +981,7 @@ sheet.addEventListener("submit", async e => {
     }
     await writeWithRetry(() => ref.set(data));
     closeSheet();
+    flash(saved, 3500);
   } catch (x) { err.textContent = writeError(x); }
   finally { btn.disabled = false; }
 });
@@ -1235,6 +1272,14 @@ document.addEventListener("click", e => {
   else if (act === "del") deleteEntry();
   else if (act === "day") { S.selDay = a.dataset.date; draw(); }
   else if (act === "stat") { S.statType = a.dataset.type; draw(); }
+  else if (act === "stat-cat") {
+    // Stats: open a category's entries, or fold the open one shut.
+    const k = a.dataset.cat, list = document.querySelector(".cat-tx");
+    if (S.statOpen === k && list) {
+      document.querySelectorAll(`.lg[data-cat="${CSS.escape(k)}"]`).forEach(b => b.setAttribute("aria-expanded", "false"));
+      foldShut(list, () => { S.statOpen = null; draw(); });
+    } else { S.statOpen = k; animate("statcat"); draw(); }
+  }
   else if (act === "demo") { buildDemo(); S.demo = true; paint(); }
   else if (act === "exit-demo") { S.demo = false; paint(); }
   else if (act === "invite") invite();
