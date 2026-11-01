@@ -370,3 +370,14 @@ button.rec[disabled] { cursor: default; color: inherit; }
   .scrim.closing { animation: scrim-fade-out .24s ease both; pointer-events: none; }
   .scrim.closing .sheet { animation: sheet-shrink .24s cubic-bezier(.4, 0, .9, .4) both; }
 }
+
+/* Accounts: bank/e-wallet logos and a header per family member */
+.ico.logo { background: none; overflow: hidden; padding: 0; }
+.ico.logo img { width: 100%; height: 100%; object-fit: cover; display: block; border-radius: 12px; }
+.acct-owner { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; padding: 14px 0 6px; border-top: 1px solid var(--line); }
+.label + .acct-owner, .meta + .acct-owner { border-top: 0; padding-top: 4px; }
+.acct-owner .nm { font-weight: 700; font-size: 14px; }
+.acct-owner .num { font-weight: 700; font-size: 14px; }
+.acct-owner + .acct { border-top: 0; }
+.acct .muted-num { color: var(--muted); font-weight: 600; }
+.av.shared-av { background: var(--sunk); font-size: 14px; }

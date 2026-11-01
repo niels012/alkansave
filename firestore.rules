@@ -5,7 +5,8 @@ rules_version = '2';
 //   households/{hid}/members/{uid}  role: owner | editor | viewer
 //   households/{hid}/tx/{id}     entries; owners and editors write
 //   households/{hid}/config/budgets  monthly limits
-//   households/{hid}/config/accounts starting balance of each account
+//   households/{hid}/config/shared   starting balances of the shared Cash and credit card
+//   households/{hid}/config/accounts older shared list of starting balances
 //   households/{hid}/recurring/{id}  bills/income added automatically each month
 //   households/{hid}/members/{uid}/devices/{id}  phones that get bill reminders
 //   invites/{code}               join links an owner creates; valid until expiresAt
@@ -120,8 +121,11 @@ service cloud.firestore {
               && validInvite(hid, request.resource.data.inviteCode))
           );
 
-        // Members edit their own name/color/photo; the owner changes other people's roles.
-        allow update: if (uid == me() && isMember(hid) && changedOnly(['name', 'color', 'avatarUrl']) && validProfile(request.resource.data))
+        // Members edit their own name/color/photo and their own starting balances ("start": account → amount);
+        // the owner changes other people's roles.
+        allow update: if (uid == me() && isMember(hid) && changedOnly(['name', 'color', 'avatarUrl', 'start'])
+            && validProfile(request.resource.data)
+            && (!('start' in request.resource.data) || (request.resource.data.start is map && request.resource.data.start.size() <= 20)))
           || (isOwner(hid) && uid != me() && changedOnly(['role']) && request.resource.data.role in ['editor', 'viewer']);
 
         // Leave the household (not the owner), or the owner removes someone else.
@@ -170,7 +174,9 @@ service cloud.firestore {
               && request.resource.data.keys().hasOnly(['limits', 'updatedAt', 'updatedBy'])
               && request.resource.data.limits is map
               && request.resource.data.limits.size() <= 40)
-            || (doc == 'accounts'
+            // 'shared': starting balances of the family's shared Cash and credit card;
+            // 'accounts': the older, single list of starting balances (still read for anything not yet moved).
+            || (doc in ['accounts', 'shared']
               && request.resource.data.keys().hasOnly(['start', 'updatedAt', 'updatedBy'])
               && request.resource.data.start is map
               && request.resource.data.start.size() <= 20)

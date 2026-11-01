@@ -277,6 +277,8 @@ function openSession(auth, fs, u, hid) {
     },
     async signOut() { await stopReminders(); await signOut(auth); location.replace(homeUrl()); },
     setRole: (uid, role) => updateDoc(doc(fs, "households", hid, "members", uid), { role }),
+    // Your own starting balance per account, e.g. { cash: 2500, gcash: 1200, card: -3000 }.
+    setStart: start => updateDoc(doc(fs, "households", hid, "members", u.uid), { start }),
     removeMember: uid => deleteDoc(doc(fs, "households", hid, "members", uid)),
     async leave() {
       await stopReminders();

@@ -28,15 +28,29 @@ const CATS = {
   ]
 };
 const TRANSFER = { k: "transfer", n: "Transfer", e: "🔁", c: "#7A8882" };
+// Cash and the credit card are shared by the whole family (one of each). GCash, GoTyme and MariBank are
+// personal: every family member has their own, and an entry uses the account of whoever logged it.
 const ACCOUNTS = [
-  { k: "cash", n: "Cash", e: "💵", c: "#4C9A66", sub: "Wallet & coin jar" },
-  { k: "gcash", n: "GCash", e: "📱", c: "#2F6FD6", sub: "E-wallet" },
-  { k: "maya", n: "Maya", e: "📲", c: "#2A9F9C", sub: "E-wallet" },
-  { k: "bank", n: "Bank", e: "🏦", c: "#8C69BD", sub: "Savings / payroll" },
-  { k: "card", n: "Credit card", e: "💳", c: "#C94233", sub: "Shows what you owe" }
+  { k: "cash", n: "Cash", e: "💵", c: "#4C9A66", shared: true },
+  { k: "gcash", n: "GCash", logo: "/icons/banks/gcash.webp" },
+  { k: "gotyme", n: "GoTyme", logo: "/icons/banks/gotyme.webp" },
+  { k: "maribank", n: "MariBank", logo: "/icons/banks/maribank.webp" },
+  { k: "card", n: "Credit card", logo: "/icons/banks/card.webp", shared: true }
 ];
+const SHARED_ACCOUNTS = ACCOUNTS.filter(a => a.shared);
+const PERSONAL_ACCOUNTS = ACCOUNTS.filter(a => !a.shared);
+const isShared = k => SHARED_ACCOUNTS.some(a => a.k === k);
+// Accounts from before; kept so older entries and starting amounts still add up, but not offered for new entries.
+const OLD_ACCOUNTS = [
+  { k: "maya", n: "Maya", e: "📲", c: "#2A9F9C" },
+  { k: "bank", n: "Bank", e: "🏦", c: "#8C69BD" }
+];
+const ALL_ACCOUNTS = [...ACCOUNTS, ...OLD_ACCOUNTS];
 const catOf = (type, k) => type === "transfer" ? TRANSFER : (CATS[type] || CATS.expense).find(c => c.k === k) || (type === "income" ? CATS.income.find(c => c.k === "other_in") : CATS.expense.find(c => c.k === "other"));
-const acctOf = k => ACCOUNTS.find(a => a.k === k) || ACCOUNTS[0];
+const acctOf = k => ALL_ACCOUNTS.find(a => a.k === k) || ACCOUNTS[0];
+const acctIcon = a => a.logo
+  ? `<span class="ico logo" aria-hidden="true"><img src="${a.logo}" alt="" width="38" height="38"></span>`
+  : `<span class="ico" style="--c:${a.c}" aria-hidden="true">${a.e}</span>`;
 const VIEWS = ["daily", "calendar", "stats", "budget", "accounts"];
 
 // ---------- Helpers ----------
@@ -58,7 +72,7 @@ const S = {
   tx: [], budgets: {}, loaded: false, live: "connecting", profiles: {},
   demo: false, demoTx: [], demoBudgets: {}, local: false,
   editing: null, delArmed: false, notice: "", canSignIn: false,
-  recurring: [], recLoaded: false, starts: {}, armed: "",
+  recurring: [], recLoaded: false, legacyStart: {}, legacyStartBy: null, sharedStart: null, armed: "",
   editingRec: null, q: "", searchOpen: false, showFilters: false, f: { type: "", cat: "", who: "", acct: "", scope: "month" },
   rem: "", remBusy: false
 };
@@ -92,7 +106,7 @@ function cleanLimits(l) {
 }
 function cleanStarts(s) {
   const out = {};
-  if (s && typeof s === "object") for (const a of ACCOUNTS) { const v = Number(s[a.k]); if (v && Math.abs(v) < 1e10) out[a.k] = v; }
+  if (s && typeof s === "object") for (const a of ALL_ACCOUNTS) { const v = Number(s[a.k]); if (v && Math.abs(v) < 1e10) out[a.k] = v; }
   return out;
 }
 function cleanRec(id, d) {
@@ -148,8 +162,8 @@ function refreshProfiles() {
 function buildDemo() {
   const m = S.month, last = m === todayISO().slice(0, 7) ? Number(todayISO().slice(8)) : daysIn(m);
   const rows = [
-    [1, "income", "salary", 32000, "bank", "a", "Sahod, 1st cutoff"],
-    [1, "expense", "bills", 14500, "bank", "a", "Rent"],
+    [1, "income", "salary", 32000, "maribank", "a", "Sahod, 1st cutoff"],
+    [1, "expense", "bills", 14500, "maribank", "a", "Rent"],
     [2, "expense", "groceries", 3860, "card", "b", "Weekly groceries"],
     [2, "expense", "transport", 180, "cash", "a", "Jeep & tricycle"],
     [3, "expense", "food", 265, "gcash", "b", "Merienda with the kids"],
@@ -157,20 +171,20 @@ function buildDemo() {
     [5, "expense", "bills", 3120, "gcash", "a", "Electric bill"],
     [6, "expense", "groceries", 940, "cash", "b", "Palengke run"],
     [7, "expense", "leisure", 1680, "card", "a", "Family dinner out"],
-    [8, "transfer", null, 5000, "bank", "a", "Pay credit card", "card"],
+    [8, "transfer", null, 5000, "maribank", "a", "Pay credit card", "card"],
     [9, "expense", "bills", 1699, "card", "a", "Internet"],
     [10, "expense", "padala", 3000, "gcash", "b", "Padala to Nanay"],
     [11, "expense", "health", 820, "cash", "b", "Vitamins & meds"],
-    [12, "expense", "transport", 420, "maya", "a", "Ride home in the rain"],
+    [12, "expense", "transport", 420, "gotyme", "a", "Ride home in the rain"],
     [13, "expense", "groceries", 2275, "card", "b", "Weekly groceries"],
-    [14, "expense", "household", 1190, "maya", "b", "Detergent & cleaning stuff"],
-    [15, "income", "salary", 32000, "bank", "a", "Sahod, 2nd cutoff"],
+    [14, "expense", "household", 1190, "gotyme", "b", "Detergent & cleaning stuff"],
+    [15, "income", "salary", 32000, "maribank", "a", "Sahod, 2nd cutoff"],
     [15, "income", "business", 6400, "gcash", "b", "Online baking orders"],
     [16, "expense", "bills", 480, "gcash", "a", "Water bill"],
     [17, "expense", "food", 540, "cash", "a", "Lunch at work"],
     [18, "expense", "shopping", 2350, "card", "b", "School shoes"],
     [19, "expense", "groceries", 1120, "cash", "b", "Palengke run"],
-    [20, "transfer", null, 2000, "bank", "b", "Cash for the week", "cash"],
+    [20, "transfer", null, 2000, "maribank", "b", "Cash for the week", "cash"],
     [21, "expense", "kids", 600, "cash", "b", "Baon for the week"],
     [22, "expense", "food", 389, "gcash", "a", "Coffee & pandesal"],
     [23, "expense", "transport", 1500, "cash", "a", "Gas"],
@@ -322,7 +336,7 @@ function filterPanel() {
     <label class="field"><span>Type</span><select data-filter="type">${opt("", "All types", F.type)}${opt("expense", "Expenses", F.type)}${opt("income", "Income", F.type)}${opt("transfer", "Transfers", F.type)}</select></label>
     <label class="field"><span>Category</span><select data-filter="cat">${opt("", "All categories", F.cat)}<optgroup label="Expenses">${CATS.expense.map(c => opt(c.k, c.n, F.cat)).join("")}</optgroup><optgroup label="Income">${CATS.income.map(c => opt(c.k, c.n, F.cat)).join("")}</optgroup></select></label>
     <label class="field"><span>Person</span><select data-filter="who">${opt("", "Everyone", F.who)}${people.map(id => opt(id, who(id).name, F.who)).join("")}</select></label>
-    <label class="field"><span>Account</span><select data-filter="acct">${opt("", "All accounts", F.acct)}${ACCOUNTS.map(a => opt(a.k, a.n, F.acct)).join("")}</select></label>
+    <label class="field"><span>Account</span><select data-filter="acct">${opt("", "All accounts", F.acct)}${ALL_ACCOUNTS.filter(a => ACCOUNTS.includes(a) || txAll().some(t => t.acct === a.k || t.to === a.k)).map(a => opt(a.k, a.n, F.acct)).join("")}</select></label>
     <div class="filters-foot"><div class="seg" role="group" aria-label="Period"><button type="button" data-act="scope" data-scope="month" aria-pressed="${F.scope === "month"}">${esc(monthLabel(S.month))}</button><button type="button" data-act="scope" data-scope="all" aria-pressed="${F.scope === "all"}">All time</button></div>
       ${filtering() ? `<button class="link" type="button" data-act="clear-filters">Clear all</button>` : ""}</div>
   </div>`;
@@ -509,36 +523,92 @@ function recurringSection() {
     ${rows ? `<p class="meta">Each is added automatically on its day. ${S.canWrite ? "Tap one to change its amount or day, or to stop it." : ""}</p>` : ""}</section>`;
 }
 
+// ---------- Accounts: each family member's own Cash, GCash, GoTyme, MariBank and credit card ----------
+// People whose accounts are shown: everyone in the book (you first), plus anyone who logged entries before leaving.
+function accountOwners() {
+  if (S.demo) return ["demo-a", "demo-b"];
+  if (!S.user) return [S.meId || "local"];
+  const ids = S.user.members().map(m => m.id);
+  for (const t of S.tx) if (t.by && !ids.includes(t.by)) ids.push(t.by);
+  return ids.sort((a, b) => (b === S.meId) - (a === S.meId));
+}
+const without = (obj, keys) => Object.fromEntries(Object.entries(obj).filter(([k]) => !keys.includes(k)));
+const SHARED_KEYS = SHARED_ACCOUNTS.map(a => a.k);
+
+// Starting balances of the shared Cash and credit card (config/shared). Until someone sets them, the Cash
+// and card amounts saved before accounts were split (config/accounts) are used.
+function sharedStarts() {
+  if (S.demo) return {};
+  if (S.sharedStart) return S.sharedStart;
+  return Object.fromEntries(Object.entries(S.legacyStart).filter(([k]) => SHARED_KEYS.includes(k)));
+}
+// A person's own starting balances live on their member record (without sign-in, in this browser).
+// Amounts saved before accounts were per person count for whoever entered them, until they save their own.
+function startsOf(owner) {
+  if (S.demo) return {};
+  if (!S.user) return without(S.legacyStart, SHARED_KEYS);
+  const m = S.user.members().find(x => x.id === owner);
+  if (m && m.start && typeof m.start === "object") return without(cleanStarts(m.start), SHARED_KEYS);
+  return owner === S.legacyStartBy ? without(S.legacyStart, SHARED_KEYS) : {};
+}
+// Money in and out of account k across a list of entries.
+const flow = (list, k) => list.reduce((a, t) => {
+  if (t.type === "income" && t.acct === k) return a + t.amount;
+  if (t.type === "expense" && t.acct === k) return a - t.amount;
+  if (t.type === "transfer") { if (t.acct === k) a -= t.amount; if (t.to === k) a += t.amount; }
+  return a;
+}, 0);
+// Shared accounts: everyone's entries count.
+function sharedBalances() {
+  const st = sharedStarts();
+  return SHARED_ACCOUNTS.map(a => ({ ...a, b: (st[a.k] || 0) + flow(txAll(), a.k) }));
+}
+// A person's own accounts: their starting amount plus the entries they logged.
+function balancesOf(owner) {
+  const st = startsOf(owner);
+  const mine = txAll().filter(t => t.by === owner);
+  const rows = PERSONAL_ACCOUNTS.map(a => ({ ...a, b: (st[a.k] || 0) + flow(mine, a.k) }));
+  for (const a of OLD_ACCOUNTS) { const b = (st[a.k] || 0) + flow(mine, a.k); if (b) rows.push({ ...a, b }); }
+  return rows;
+}
+const ownerName = o => who(o).name + (o === S.meId && S.user ? " (you)" : "");
+const SHARED_BADGE = `<span class="av shared-av" aria-hidden="true">👪</span>`;
+
 function viewAccounts() {
-  const all = txAll();
-  const starts = S.demo ? {} : S.starts;
-  const bal = k => all.reduce((a, t) => {
-    if (t.type === "income" && t.acct === k) return a + t.amount;
-    if (t.type === "expense" && t.acct === k) return a - t.amount;
-    if (t.type === "transfer") { if (t.acct === k) a -= t.amount; if (t.to === k) a += t.amount; }
-    return a;
-  }, starts[k] || 0);
-  const rows = ACCOUNTS.map(a => ({ ...a, b: bal(a.k) }));
-  const assets = rows.filter(r => r.b > 0).reduce((s, r) => s + r.b, 0);
-  const liab = rows.filter(r => r.b < 0).reduce((s, r) => s + r.b, 0);
+  const groups = [{ head: SHARED_BADGE, name: "Shared", rows: sharedBalances() }]
+    .concat(accountOwners().map(o => ({ head: avatar(o), name: ownerName(o), rows: balancesOf(o) })));
+  const all = groups.flatMap(g => g.rows);
+  const assets = all.filter(r => r.b > 0).reduce((s, r) => s + r.b, 0);
+  const liab = all.filter(r => r.b < 0).reduce((s, r) => s + r.b, 0);
+  const cls = b => b < 0 ? "exp" : b > 0 ? "inc" : "";
+  const balances = groups.map(g => {
+    const net = g.rows.reduce((s, r) => s + r.b, 0);
+    return `<div class="acct-owner">${g.head}<span class="nm">${esc(g.name)}</span><span class="num ${cls(net)}">${peso(net)}</span></div>
+      ${g.rows.map(r => `<div class="acct">${acctIcon(r)}<div class="nm">${esc(r.n)}</div><span class="num ${cls(r.b)}">${peso(r.b)}</span></div>`).join("")}`;
+  }).join("");
   return `<section class="card"><div class="acct-sum"><div><span>Assets</span><b class="num inc">${peso(assets)}</b></div><div><span>Owed</span><b class="num exp">${peso(-liab)}</b></div><div><span>Net</span><b class="num">${peso(assets + liab)}</b></div></div></section>
-    <section class="card"><span class="label">Balances</span>${rows.map(r => `<div class="acct"><span class="ico" style="--c:${r.c}" aria-hidden="true">${r.e}</span><div><div class="nm">${esc(r.n)}</div><div class="sub">${esc(r.sub)}</div></div><span class="num ${r.b < 0 ? "exp" : r.b > 0 ? "inc" : ""}">${peso(r.b)}</span></div>`).join("")}</section>`
+    <section class="card"><span class="label">Balances</span>${balances}</section>`
     + startSection() + familySection() + exportSection() + installSection();
 }
 
-// What each account held before the family started logging. The card is entered as the amount owed.
+// What each account held before the family started logging. Anyone who can edit sets the shared Cash and
+// card; everyone sets their own GCash, GoTyme and MariBank. The card is entered as the amount owed.
 function startSection() {
   if (S.demo) return "";
-  const editable = S.canWrite;
-  const rows = ACCOUNTS.map(a => {
+  const row = (a, st, editable, attr) => {
     const owed = a.k === "card";
-    const v = S.starts[a.k] ? (owed ? -S.starts[a.k] : S.starts[a.k]) : "";
-    return `<div class="acct"><span class="ico" style="--c:${a.c}" aria-hidden="true">${a.e}</span>
-      <div><div class="nm">${esc(a.n)}</div><div class="sub">${owed ? "Owed when you started" : "Had when you started"}</div></div>
-      <label class="limit"><span>₱</span><input data-start="${a.k}" inputmode="decimal" value="${v}" placeholder="0" aria-label="Starting ${owed ? "amount owed on" : "balance of"} ${esc(a.n)}"${editable ? "" : " disabled"}></label></div>`;
-  }).join("");
+    const v = st[a.k] ? (owed ? -st[a.k] : st[a.k]) : 0;
+    const value = editable
+      ? `<label class="limit"><span>₱</span><input ${attr}="${a.k}" inputmode="decimal" value="${v || ""}" placeholder="0" aria-label="Starting ${owed ? "amount owed on" : "balance of"} ${esc(a.n)}"></label>`
+      : `<span class="num muted-num">${v ? peso(v) : "—"}</span>`;
+    return `<div class="acct">${acctIcon(a)}<div><div class="nm">${esc(a.n)}</div><div class="sub">${owed ? "Owed when you started" : "Had when you started"}</div></div>${value}</div>`;
+  };
+  const shared = `<div class="acct-owner">${SHARED_BADGE}<span class="nm">Shared</span></div>`
+    + SHARED_ACCOUNTS.map(a => row(a, sharedStarts(), S.canWrite, "data-start-shared")).join("");
+  const people = accountOwners().map(o => `<div class="acct-owner">${avatar(o)}<span class="nm">${esc(ownerName(o))}</span></div>`
+    + PERSONAL_ACCOUNTS.map(a => row(a, startsOf(o), o === S.meId && S.canWrite, "data-start")).join("")).join("");
   return `<section class="card"><span class="label">Starting balances</span>
-    <p class="meta">Enter what's already in each account so the balances above match real life.</p>${rows}</section>`;
+    <p class="meta">What was already in each account before you started logging. Anyone can set the shared Cash and card; everyone enters their own GCash, GoTyme and MariBank.</p>${shared}${people}</section>`;
 }
 
 function exportSection() {
@@ -634,6 +704,11 @@ function fillAccounts() {
   $("#f-acct").innerHTML = opts; $("#f-to").innerHTML = opts;
   $("#f-day").innerHTML = Array.from({ length: 31 }, (_, i) => `<option value="${i + 1}">${recWhen(i + 1)}</option>`).join("");
 }
+// Selects an account, adding an old one (Maya, Bank) just for this entry so editing it doesn't switch accounts.
+function pickAccount(sel, k) {
+  if (k && ![...sel.options].some(o => o.value === k)) sel.add(new Option(acctOf(k).n, k));
+  sel.value = k;
+}
 function renderCats(type, sel) {
   const list = CATS[type] || [];
   $("#f-cats").innerHTML = list.map(c => `<input type="radio" name="cat" id="cat-${c.k}" value="${c.k}"${c.k === sel ? " checked" : ""}><label for="cat-${c.k}" style="--c:${c.c}"><span class="e" aria-hidden="true">${c.e}</span>${esc(c.n)}</label>`).join("");
@@ -677,8 +752,9 @@ function openSheet(t) {
   $("#f-repeat").checked = false;
   $("#f-amount").value = t ? String(t.amount) : "";
   $("#f-date").value = t ? t.date : defDate;
-  $("#f-acct").value = t ? t.acct : "cash";
-  $("#f-to").value = t && t.to ? t.to : "bank";
+  fillAccounts();
+  pickAccount($("#f-acct"), t ? t.acct : "cash");
+  pickAccount($("#f-to"), t && t.to ? t.to : "maribank");
   $("#f-note").value = t ? t.note : "";
   const meta = $("#f-meta");
   if (t) { meta.hidden = false; meta.textContent = `Logged by ${who(t.by).name}${t.createdAt ? " · " + ago(t.createdAt) : ""}${t.updatedAt && t.updatedBy ? ` · last edited by ${who(t.updatedBy).name}` : ""}`; }
@@ -697,7 +773,8 @@ function openRecSheet(r) {
   setType(r.type, r.cat);
   $("#f-amount").value = String(r.amount);
   $("#f-day").value = String(r.day);
-  $("#f-acct").value = r.acct;
+  fillAccounts();
+  pickAccount($("#f-acct"), r.acct);
   $("#f-note").value = r.note;
   const meta = $("#f-meta");
   meta.hidden = false;
@@ -838,12 +915,26 @@ function saveBudget(k, raw) {
 
 // ---------- Starting balances ----------
 let startQueue = Promise.resolve();
+// Saves the shared Cash / credit card starting balance (config/shared) for the whole family.
+function saveSharedStart(k, raw) {
+  const v = parseAmount(raw) * (k === "card" ? -1 : 1);
+  const start = { ...sharedStarts() };
+  if ((start[k] || 0) === v) return;
+  if (v) start[k] = v; else delete start[k];
+  S.sharedStart = start;
+  startQueue = startQueue.then(() => writeWithRetry(() => S.db.doc("config/shared").set({ start, updatedAt: Date.now(), updatedBy: S.meId })))
+    .catch(x => { flash(writeError(x)); draw(); });
+}
+// Saves your own starting balances: on your member record in a family book, or in this browser otherwise.
 function saveStart(k, raw) {
   const v = parseAmount(raw) * (k === "card" ? -1 : 1);
-  if ((S.starts[k] || 0) === v) return;
-  if (v) S.starts[k] = v; else delete S.starts[k];
-  const start = { ...S.starts };
-  startQueue = startQueue.then(() => writeWithRetry(() => S.db.doc("config/accounts").set({ start, updatedAt: Date.now(), updatedBy: S.meId }))).catch(x => { flash(writeError(x)); draw(); });
+  const start = { ...startsOf(S.meId) }; // includes amounts saved the old shared way, which move over now
+  if ((start[k] || 0) === v) return;
+  if (v) start[k] = v; else delete start[k];
+  const write = S.user
+    ? () => S.user.setStart(start)
+    : () => { S.legacyStart = start; return S.db.doc("config/accounts").set({ start, updatedAt: Date.now(), updatedBy: S.meId }); };
+  startQueue = startQueue.then(() => writeWithRetry(write)).catch(x => { flash(writeError(x)); draw(); });
 }
 
 // ---------- Recurring ----------
@@ -1107,6 +1198,7 @@ $("#main").addEventListener("change", e => {
   const d = e.target.dataset || {};
   if (d.lim) saveBudget(d.lim, e.target.value);
   else if (d.start) saveStart(d.start, e.target.value);
+  else if (d.startShared) saveSharedStart(d.startShared, e.target.value);
   else if (d.role) S.user.setRole(d.role, e.target.value).catch(() => { flash("Couldn't change their role. Check your connection and try again."); draw(); });
   else if (d.filter) { S.f[d.filter] = e.target.value; draw(); }
 });
@@ -1151,8 +1243,15 @@ draw();
     S.budgets = cleanLimits(snap.exists ? snap.data().limits : null);
     draw();
   }, () => {});
+  // Starting balances saved before they were per person (and, without sign-in, the only ones).
   S.db.doc("config/accounts").onSnapshot(snap => {
-    S.starts = cleanStarts(snap.exists ? snap.data().start : null);
+    const d = snap.exists ? snap.data() : null;
+    S.legacyStart = cleanStarts(d && d.start);
+    S.legacyStartBy = d && d.updatedBy;
+    draw();
+  }, () => {});
+  S.db.doc("config/shared").onSnapshot(snap => {
+    S.sharedStart = snap.exists ? cleanStarts(snap.data().start) : null;
     draw();
   }, () => {});
   S.db.collection("recurring").onSnapshot(snap => {

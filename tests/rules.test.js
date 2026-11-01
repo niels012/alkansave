@@ -220,3 +220,20 @@ test("members can register their own phone for reminders, and nobody else's", as
   await assertFails(setDoc(doc(as("cy"), "households", HID, "members", "cy", "devices", "d4"), { ...device, extra: 1 }));
   await assertSucceeds(deleteDoc(doc(as("cy"), "households", HID, "members", "cy", "devices", "d1")));
 });
+
+// ---------- Per-person starting balances ----------
+test("members can set their own starting balances, but not someone else's or their role", async () => {
+  const start = { cash: 2500, gcash: 1200, gotyme: 5000, maribank: 20000, card: -3000 };
+  await assertSucceeds(updateDoc(doc(as("cy"), "households", HID, "members", "cy"), { start }));
+  await assertFails(updateDoc(doc(as("ben"), "households", HID, "members", "cy"), { start }));
+  await assertFails(updateDoc(doc(as("cy"), "households", HID, "members", "cy"), { start, role: "editor" }));
+  await assertFails(updateDoc(doc(as("cy"), "households", HID, "members", "cy"), { start: "lots" }));
+  await assertFails(updateDoc(doc(as("eve"), "households", HID, "members", "eve"), { start }));
+});
+
+test("editors can set the shared Cash and card starting balances; viewers cannot", async () => {
+  const start = { cash: 4000, card: -12000 };
+  await assertSucceeds(setDoc(doc(as("ben"), "households", HID, "config", "shared"), { start, updatedAt: 1, updatedBy: "ben" }));
+  await assertFails(setDoc(doc(as("cy"), "households", HID, "config", "shared"), { start, updatedAt: 1, updatedBy: "cy" }));
+  await assertFails(setDoc(doc(as("ben"), "households", HID, "config", "shared"), { start, updatedAt: 1, updatedBy: "ana" }));
+});
