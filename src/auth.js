@@ -12,6 +12,7 @@ import { firestoreDb, toStored } from "./data/firestore.js";
 import { readLocal, archiveLocal } from "./data/local.js";
 import { isIOS, isStandalone } from "./device.js";
 import { DEVICE_ONLY, store, homeUrl } from "./prefs.js";
+import { hideSplash, showSplash } from "./splash.js";
 
 const EMAIL = "alkansave.email";
 const INVITE = "alkansave.invite";
@@ -41,6 +42,7 @@ function authMessage(e) {
 // ---------- Screens ----------
 let gateEl = null;
 function screen(html) {
+  hideSplash();
   if (!gateEl) {
     gateEl = document.createElement("div");
     gateEl.className = "gate";
@@ -318,8 +320,11 @@ export async function startSession() {
     if (r === "local") { closeGate(); return null; }
     u = r;
   }
-  screen(`<p class="meta">Opening your family book…</p>`);
+  // Back to the logo screen while the book opens (app.js hides it once entries have loaded).
+  closeGate();
+  showSplash();
   const hid = await chooseHousehold(fs, auth, u);
   closeGate();
+  showSplash(); // joining or creating a book may have shown a screen in between
   return openSession(auth, fs, u, hid);
 }

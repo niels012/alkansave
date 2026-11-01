@@ -1,6 +1,7 @@
 import { connect } from "./data/index.js";
 import { leaveDeviceOnly } from "./prefs.js";
 import { isIOS, isStandalone } from "./device.js";
+import { hideSplash } from "./splash.js";
 
 // ---------- Reference data ----------
 const CATS = {
@@ -187,6 +188,9 @@ let pending = false;
 function draw() {
   const active = document.activeElement;
   if (active && active.closest && active.closest("#main input")) { pending = true; drawChrome(); return; }
+  // Don't rebuild the list under a finger that's swiping an entry or an entry that's swiped open;
+  // closeRow()/endSwipe() catch up afterwards.
+  if (swipeBusy()) { pending = true; drawChrome(); return; }
   pending = false;
   drawChrome();
   const main = $("#main");
@@ -241,16 +245,26 @@ function familyCard() {
 }
 
 // One entry: category on the left, note (or category) with account and person underneath, amount on the right.
+// Swiping the row left uncovers Edit and Delete behind it (see "Swipe an entry" below); view-only members can't swipe.
+const EDIT_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M14 6l4 4"/></svg>`;
+const TRASH_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>`;
 function txRow(t) {
   const c = catOf(t.type, t.cat);
   const acct = t.type === "transfer" ? `${acctOf(t.acct).n} → ${acctOf(t.to).n}` : acctOf(t.acct).n;
   const cls = t.type === "income" ? "inc" : t.type === "expense" ? "exp" : "";
   const ro = !(S.demo || S.canWrite);
-  return `<button class="tx" type="button" data-act="edit" data-id="${esc(t.id)}"${ro ? " disabled" : ""}>
-    <span class="tx-cat"><span class="e" aria-hidden="true">${c.e}</span><span class="n">${esc(c.n)}</span></span>
-    <span class="tx-main"><span class="tx-title">${esc(t.note || c.n)}</span><span class="tx-sub">${esc(acct)} · ${esc(who(t.by).name)}</span></span>
-    <span class="num tx-amt ${cls}">${peso(t.amount)}</span>
-  </button>`;
+  const id = esc(t.id);
+  return `<div class="tx-wrap"${ro ? ` data-ro="1"` : ""}>
+    ${ro ? "" : `<div class="tx-actions">
+      <button type="button" class="tx-del" data-act="tx-del" data-id="${id}">${TRASH_ICON}<span class="lbl">Delete</span></button>
+      <button type="button" class="tx-edit" data-act="edit" data-id="${id}">${EDIT_ICON}<span>Edit</span></button>
+    </div>`}
+    <div class="tx">
+      <span class="tx-cat"><span class="e" aria-hidden="true">${c.e}</span><span class="n">${esc(c.n)}</span></span>
+      <span class="tx-main"><span class="tx-title">${esc(t.note || c.n)}</span><span class="tx-sub">${esc(acct)} · ${esc(who(t.by).name)}</span></span>
+      <span class="num tx-amt ${cls}">${peso(t.amount)}</span>
+    </div>
+  </div>`;
 }
 // showMonth: add "11.2026" next to the weekday when a list can span months (all-time search).
 function dayGroup(date, list, showMonth) {
@@ -892,17 +906,135 @@ addEventListener("scroll", () => {
   if (scrollY - filterScrollFrom > 12) { filterScrollFrom = null; closeFilters(true); }
 }, { passive: true });
 
+// ---------- Swipe an entry left to edit or delete ----------
+// Only sideways drags start a swipe (touch-action: pan-y leaves up/down scrolling to the browser).
+// One row is open at a time; tapping anywhere, scrolling, or swiping back closes it.
+// Dragging past the buttons stretches Edit after the finger; past FULL_SWIPE of the row's width,
+// Delete tucks away, and letting go there opens the edit form.
+const ACTION_W = 68;            // one button's width (.tx-actions button in styles.css)
+const ACTIONS_W = ACTION_W * 2; // Delete + Edit
+const FULL_SWIPE = 0.6;
+let swipe = null, openRow = null, swipeHinted = false, delTimer = 0;
+function swipeBusy() { return !!(swipe && swipe.sideways && swipe.wrap.isConnected) || !!(openRow && openRow.isConnected); }
+const catchUp = () => { if (pending && !swipeBusy()) draw(); };
+const rowOf = el => el && el.closest ? el.closest(".tx-wrap") : null;
+const actionsWidth = () => ACTIONS_W;
+function setRowOffset(wrap, x, animate) {
+  wrap.querySelector(".tx").style.transform = x ? `translateX(${x}px)` : "";
+  wrap.classList.toggle("dragging", !animate);
+  // Edit takes up whatever is uncovered beyond the two buttons (all of it in a full swipe).
+  const edit = wrap.querySelector(".tx-edit");
+  const full = -x > wrap.offsetWidth * FULL_SWIPE;
+  wrap.classList.toggle("full", full);
+  if (edit) edit.style.width = -x > ACTIONS_W ? `${full ? -x : -x - ACTION_W}px` : "";
+}
+// Full swipe: slide the entry the rest of the way out, open its edit form, then put the row back behind it.
+function fullSwipeEdit(wrap) {
+  const id = wrap.querySelector(".tx-edit").dataset.id;
+  openRow = wrap; // holds off list redraws during the slide
+  setRowOffset(wrap, -wrap.offsetWidth, true);
+  setTimeout(() => {
+    const t = txAll().find(x => x.id === id);
+    if (t) openSheet(t);
+    if (wrap.isConnected) {
+      setRowOffset(wrap, 0, false); // snap back while hidden behind the form
+      requestAnimationFrame(() => wrap.classList.remove("dragging"));
+    }
+    openRow = null;
+    catchUp();
+  }, 200);
+}
+function disarmDelete(wrap) {
+  const b = wrap && wrap.querySelector(".tx-del.armed");
+  if (b) { b.classList.remove("armed"); b.querySelector(".lbl").textContent = "Delete"; }
+}
+function closeRow() {
+  if (!openRow) return;
+  if (!openRow.isConnected) { openRow = null; return; } // the list was redrawn since it opened
+  setRowOffset(openRow, 0, true);
+  disarmDelete(openRow);
+  openRow = null;
+  setTimeout(catchUp, 220); // after the slide-back animation
+}
+function openSwipeRow(wrap) {
+  if (openRow && openRow !== wrap) closeRow();
+  setRowOffset(wrap, -actionsWidth(wrap), true);
+  openRow = wrap;
+}
+
+$("#main").addEventListener("pointerdown", e => {
+  const wrap = rowOf(e.target);
+  if (!wrap || wrap.dataset.ro || e.target.closest(".tx-actions")) return;
+  if (e.pointerType === "mouse" && e.button !== 0) return;
+  swipe = { wrap, id: e.pointerId, x0: e.clientX, y0: e.clientY, base: wrap === openRow ? -actionsWidth(wrap) : 0, dx: 0, sideways: false };
+});
+addEventListener("pointermove", e => {
+  if (!swipe || e.pointerId !== swipe.id) return;
+  const dx = e.clientX - swipe.x0, dy = e.clientY - swipe.y0;
+  if (!swipe.sideways) {
+    if (Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy)) {
+      swipe.sideways = true;
+      if (openRow && openRow !== swipe.wrap) closeRow();
+      try { swipe.wrap.querySelector(".tx").setPointerCapture(e.pointerId); } catch {}
+    } else if (Math.abs(dy) > 8) { swipe = null; return; }
+    else return;
+  }
+  swipe.dx = dx;
+  setRowOffset(swipe.wrap, Math.max(-swipe.wrap.offsetWidth, Math.min(0, swipe.base + dx)), false);
+});
+function endSwipe(e) {
+  if (!swipe || e.pointerId !== swipe.id) return;
+  const s = swipe;
+  swipe = null;
+  if (!s.sideways) return; // a plain tap; the click handler deals with it
+  s.wrap.dataset.swipedAt = String(Date.now()); // ignore the click that follows the drag
+  const x = s.base + s.dx;
+  if (-x > s.wrap.offsetWidth * FULL_SWIPE) fullSwipeEdit(s.wrap);
+  else if (x < -actionsWidth(s.wrap) / 2) openSwipeRow(s.wrap);
+  else { setRowOffset(s.wrap, 0, true); disarmDelete(s.wrap); if (openRow === s.wrap) openRow = null; setTimeout(catchUp, 220); }
+}
+addEventListener("pointerup", endSwipe);
+addEventListener("pointercancel", endSwipe);
+addEventListener("scroll", () => { if (openRow && !swipe) closeRow(); }, { passive: true });
+
+// Delete asks once more ("Confirm") before removing the entry.
+async function deleteFromRow(btn) {
+  const wrap = rowOf(btn), id = btn.dataset.id;
+  if (!btn.classList.contains("armed")) {
+    btn.classList.add("armed");
+    btn.querySelector(".lbl").textContent = "Confirm";
+    clearTimeout(delTimer);
+    delTimer = setTimeout(() => disarmDelete(wrap), 4000);
+    return;
+  }
+  clearTimeout(delTimer);
+  if (openRow === wrap) openRow = null;
+  if (S.demo) { S.demoTx = S.demoTx.filter(t => t.id !== id); paint(); flash("Entry deleted."); return; }
+  try { await writeWithRetry(() => S.db.collection("tx").doc(id).delete()); flash("Entry deleted."); }
+  catch (x) { flash(writeError(x)); setRowOffset(wrap, 0, true); disarmDelete(wrap); }
+}
+
 document.addEventListener("click", e => {
   // A tap anywhere outside the open filter panel closes it (the Filter button toggles it itself).
   // The tap still does whatever it was aimed at, e.g. opening an entry.
   if (S.showFilters && !e.target.closest(".filters") && !e.target.closest('[data-act="filters"]')) closeFilters(false);
+  // Entries: a tap on the row itself doesn't open it. It closes an open row, or explains how to swipe.
+  const wrap = rowOf(e.target);
+  const justSwiped = !!wrap && Date.now() - Number(wrap.dataset.swipedAt || 0) < 500;
+  const wasOpen = !!openRow && openRow.isConnected;
+  if (wasOpen && !justSwiped && !(wrap === openRow && e.target.closest(".tx-actions"))) closeRow();
+  if (wrap && !e.target.closest(".tx-actions")) {
+    if (!justSwiped && !wasOpen && !wrap.dataset.ro && !swipeHinted) { swipeHinted = true; flash("Swipe left on an entry to edit or delete it.", 4000); }
+    return;
+  }
   const v = e.target.closest("[data-view]");
   if (v) { S.view = v.dataset.view; S.armed = ""; if (!S.q) S.searchOpen = false; try { localStorage.setItem("alkansave.view", S.view); } catch {} draw(); window.scrollTo(0, 0); return; }
   const a = e.target.closest("[data-act]"); if (!a) return;
   const act = a.dataset.act;
   if (act === "prev" || act === "next") { S.month = shiftMonth(S.month, act === "prev" ? -1 : 1); draw(); }
   else if (act === "add") openSheet(null);
-  else if (act === "edit") { const t = txAll().find(x => x.id === a.dataset.id); if (t) openSheet(t); }
+  else if (act === "edit") { closeRow(); const t = txAll().find(x => x.id === a.dataset.id); if (t) openSheet(t); }
+  else if (act === "tx-del") deleteFromRow(a);
   else if (act === "close") closeSheet();
   else if (act === "cat-toggle") showCats($("#f-cats").hidden);
   else if (act === "del") deleteEntry();
@@ -990,7 +1122,8 @@ draw();
     S.loaded = true;
     S.live = snap.metadata.fromCache ? "offline" : snap.metadata.hasPendingWrites ? "saving" : "live";
     paint();
-  }, () => { S.live = "error"; S.loaded = true; paint(); });
+    hideSplash();
+  }, () => { S.live = "error"; S.loaded = true; paint(); hideSplash(); });
   S.db.doc("config/budgets").onSnapshot(snap => {
     S.budgets = cleanLimits(snap.exists ? snap.data().limits : null);
     draw();

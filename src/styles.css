@@ -110,11 +110,23 @@ main.wrap { padding-block: 12px calc(var(--nav-h) + 96px + env(safe-area-inset-b
 .day-h .num { font-size: 14px; font-weight: 700; text-align: right; }
 .day-h .num.exp { margin-left: 12px; } /* more room between the day's income and expense totals */
 .day-h .day-n { font-size: 22px; font-weight: 700; text-align: left; }
-.tx { width: 100%; border: 0; background: transparent; display: grid; grid-template-columns: 84px minmax(0, 1fr) auto; gap: 10px; align-items: center;
-  padding: 8px var(--pr) 8px var(--pl); text-align: left; border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
-.tx:first-of-type { border-top: 0; }
-.tx:hover { background: color-mix(in srgb, var(--sunk) 60%, transparent); }
-.tx[disabled] { cursor: default; }
+/* Each entry sits on top of its Edit/Delete buttons; swiping slides it left to show them. */
+.tx-wrap { position: relative; overflow: hidden; border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
+.day-h + .tx-wrap { border-top: 0; }
+.tx-actions { position: absolute; top: 0; right: 0; bottom: 0; display: flex; justify-content: flex-end; background: var(--accent); }
+.tx-actions button { flex: none; width: 68px; padding: 0; border: 0; color: #fff; display: grid; place-items: center; align-content: center; gap: 2px; font-size: 11.5px; font-weight: 700; overflow: hidden; white-space: nowrap; transition: width .2s ease; }
+.tx-actions svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.tx-edit { background: var(--accent); color: var(--accent-ink) !important; }
+.tx-del { background: var(--expense); }
+.tx-del.armed { background: color-mix(in srgb, var(--expense) 70%, #000); }
+/* Edit follows the finger while dragging (no lag); Delete still glides away/back at the full-swipe point. */
+.tx-wrap.dragging .tx-edit { transition: none; }
+.tx-wrap.full .tx-del { width: 0; }
+.tx { position: relative; z-index: 1; width: 100%; background: var(--surface); display: grid; grid-template-columns: 84px minmax(0, 1fr) auto; gap: 10px; align-items: center;
+  padding: 8px var(--pr) 8px var(--pl); text-align: left; touch-action: pan-y; user-select: none; -webkit-user-select: none; transition: transform .2s ease; }
+.tx-wrap.dragging .tx { transition: none; }
+/* Keyboard users: tabbing to Edit/Delete slides the entry open. */
+.tx-wrap:has(:focus-visible) .tx { transform: translateX(-136px); }
 .tx-cat { display: flex; align-items: center; gap: 5px; min-width: 0; font-size: 12px; color: var(--muted); line-height: 1.2; }
 .tx-cat .e { font-size: 15px; flex: none; }
 .tx-cat .n { overflow-wrap: anywhere; }
@@ -333,3 +345,9 @@ button.rec[disabled] { cursor: default; color: inherit; }
 .cat-toggle .chev { width: 18px; height: 18px; flex: none; fill: none; stroke: var(--muted); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: transform .15s; }
 .cat-toggle[aria-expanded="true"] { border-color: var(--accent); }
 .cat-toggle[aria-expanded="true"] .chev { transform: rotate(180deg); }
+
+/* Logo screen while the app loads (index.html #splash, src/splash.js) */
+.splash { position: fixed; inset: 0; z-index: 60; background: var(--bg); display: grid; place-items: center; padding: 24px; transition: opacity .25s ease; }
+.splash img { display: block; width: min(64vw, 280px); height: auto; }
+.splash.gone { opacity: 0; pointer-events: none; }
+@media (prefers-reduced-motion: reduce) { .splash { transition: none; } }

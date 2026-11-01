@@ -7,7 +7,7 @@
 // Firebase traffic goes to other domains and is left alone; Firestore keeps its own offline copy of the data.
 const VERSION = "__VERSION__";
 const BUILT_FILES = __PRECACHE__;
-const STATIC_FILES = ["/manifest.webmanifest", "/icons/mark.png", "/icons/favicon-32.png", "/icons/favicon-64.png", "/icons/apple-touch-icon.png", "/icons/icon-192.png", "/icons/icon-512.png"];
+const STATIC_FILES = ["/manifest.webmanifest", "/icons/mark.png", "/icons/favicon-32.png", "/icons/favicon-64.png", "/icons/apple-touch-icon.png", "/icons/icon-192.png", "/icons/icon-512.png", "/icons/splash-light.webp", "/icons/splash-dark.webp"];
 const SHELL = `alkansave-shell-${VERSION}`;
 const FONTS = "alkansave-fonts-v1";
 
