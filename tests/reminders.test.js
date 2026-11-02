@@ -48,6 +48,7 @@ test("income and stopped items get no reminder", () => {
 test("one bill: name, amount and account", () => {
   assert.deepEqual(reminderText([bill()]), { title: "Due tomorrow: Rent", body: "₱14,500 from Bank" });
   assert.equal(reminderText([bill({ note: "", cat: "pet" })]).title, "Due tomorrow: Pet");
+  assert.equal(reminderText([bill({ amountCents: 123450 })]).body, "₱1,234.50 from Bank"); // two digits of centavos
 });
 
 test("several bills: count and total, biggest first", () => {

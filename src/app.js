@@ -63,11 +63,13 @@ const VIEWS = ["daily", "calendar", "stats", "budget", "accounts"];
 const $ = s => document.querySelector(s);
 const pad = n => String(n).padStart(2, "0");
 const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
-const fmt = new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP", minimumFractionDigits: 0, maximumFractionDigits: 2 });
-const peso = n => fmt.format(Math.round((n || 0) * 100) / 100);
-// Dollars: whole amounts as "$2,500", anything with cents as "$2,500.50".
-const usdFmt = d => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: d, maximumFractionDigits: d });
-const usd = n => { const v = Math.round((n || 0) * 100) / 100; return usdFmt(v % 1 ? 2 : 0).format(v); };
+// Money: whole amounts as "₱2,500", anything with centavos as "₱2,500.50" (never "₱2,500.5"). Same for dollars.
+const currency = (code, locale) => {
+  const [whole, cents] = [0, 2].map(d => new Intl.NumberFormat(locale, { style: "currency", currency: code, minimumFractionDigits: d, maximumFractionDigits: d }));
+  return n => { const v = Math.round((n || 0) * 100) / 100; return (v % 1 ? cents : whole).format(v); };
+};
+const peso = currency("PHP", "en-PH");
+const usd = currency("USD", "en-US");
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const shiftMonth = (m, d) => { const [y, mo] = m.split("-").map(Number); const t = new Date(y, mo - 1 + d, 1); return `${t.getFullYear()}-${pad(t.getMonth() + 1)}`; };
 const monthLabel = m => { const [y, mo] = m.split("-").map(Number); return new Date(y, mo - 1, 1).toLocaleDateString("en-PH", { month: "long", year: "numeric" }); };

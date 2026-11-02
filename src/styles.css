@@ -426,6 +426,17 @@ button.rec[disabled] { cursor: default; color: inherit; }
 .bal-table tfoot tr.usd th, .bal-table tfoot tr.usd td { border-top: 1px solid var(--line); font-weight: 600; }
 .bal-table tfoot tr.usd .num { font-weight: 600; }
 .bal-table tfoot tr.usd .tot .num { font-weight: 700; }
+/* Phones: smaller amounts, logos and gaps, so amounts with centavos fit without scrolling sideways */
+@media (max-width: 480px) {
+  .bal-table { font-size: 11.5px; }
+  .bal-table th, .bal-table td { padding: 7px 2px; }
+  .bal-table .acct-name { gap: 5px; }
+  .bal-table .ico { width: 22px; height: 22px; border-radius: 7px; font-size: 12px; }
+  .bal-table .ico.logo img { border-radius: 7px; }
+  .bal-table .who-col { font-size: 11px; }
+  .bal-table .who-col .av { width: 28px; height: 28px; font-size: 11px; }
+  .bal-table .shared-cell { font-size: 10.5px; }
+}
 
 /* Card heading that folds the card open/closed (Starting balances, Family) */
 .card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }

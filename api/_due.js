@@ -12,8 +12,9 @@ const ACCOUNT = {
   maya: "Maya", bank: "Bank"
 };
 
-const pesoFmt = new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP", minimumFractionDigits: 0, maximumFractionDigits: 2 });
-const peso = cents => pesoFmt.format(cents / 100);
+// "₱14,500", or "₱1,234.50" with centavos (never "₱1,234.5"), same as in the app.
+const [pesoWhole, pesoCents] = [0, 2].map(d => new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP", minimumFractionDigits: d, maximumFractionDigits: d }));
+const peso = cents => (cents % 100 ? pesoCents : pesoWhole).format(cents / 100);
 const label = b => b.note || CATEGORY[b.cat] || "Bill";
 
 // Today's date in the Philippines (UTC+8, no daylight saving), shifted by whole days, as "YYYY-MM-DD".
