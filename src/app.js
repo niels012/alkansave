@@ -89,7 +89,7 @@ const S = {
   editing: null, delArmed: false, notice: "", canSignIn: false,
   recurring: [], recLoaded: false, legacyStart: {}, legacyStartBy: null, sharedStart: null, armed: "",
   editingRec: null, q: "", searchOpen: false, showFilters: false, f: { type: "", cat: "", who: "", acct: "", scope: "month" },
-  rem: "", remBusy: false, statOpen: null
+  rem: "", remBusy: false, statOpen: null, balOpen: false
 };
 try { const h = location.hash.slice(1); if (VIEWS.includes(h)) S.view = h; } catch {}
 // A tapped bill reminder opens "/#budget" in an already-open app.
@@ -292,7 +292,9 @@ function drawChrome() {
   const mt = monthTx();
   const inc = mt.filter(t => t.type === "income").reduce((a, t) => a + t.amount, 0);
   const exp = mt.filter(t => t.type === "expense").reduce((a, t) => a + t.amount, 0);
-  $("#sum").innerHTML = `<div><span>Income</span><b class="num inc">${peso(inc)}</b></div><div><span>Expenses</span><b class="num exp">${peso(exp)}</b></div><div><span>Balance</span><b class="num">${peso(inc - exp)}</b></div>`;
+  $("#sum").innerHTML = `<div><span>Income</span><b class="num inc">${peso(inc)}</b></div><div><span>Expenses</span><b class="num exp">${peso(exp)}</b></div>
+    <button type="button" class="sum-bal" data-act="bal-toggle" aria-expanded="${S.balOpen}" aria-controls="balBreak"><span>Balance<svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></span><b class="num">${peso(inc - exp)}</b></button>
+    ${S.balOpen ? balanceBreakdown(mt) : ""}`;
 
   const live = $("#live");
   const ls = S.demo ? "preview" : S.local ? "local" : S.live;
@@ -319,6 +321,15 @@ function drawChrome() {
     if (on) t.setAttribute("aria-current", "page"); else t.removeAttribute("aria-current");
   });
   $("#fab").hidden = !(S.demo || S.canWrite);
+}
+
+// Under Balance: what this month's entries left in each account (the whole family's together), without
+// starting balances. The credit card isn't money on hand, so it isn't listed; neither are accounts where nothing changed.
+function balanceBreakdown(mt) {
+  const rows = ALL_ACCOUNTS.filter(a => a.k !== "card").map(a => ({ a, b: Math.round(flow(mt, a.k) * 100) / 100 })).filter(r => r.b);
+  const list = rows.map(r => `<div class="bb"><span class="nm">${acctIcon(r.a)}${esc(r.a.n)}</span><b class="num ${r.b < 0 ? "exp" : "inc"}">${peso(r.b)}</b></div>`).join("");
+  return `<div class="bal-break" id="balBreak">${list || `<p class="meta">No money moved in any account in ${esc(monthLabel(S.month))}.</p>`}
+    <p class="meta">This month's entries only · starting balances not included</p></div>`;
 }
 
 function familyCard() {
@@ -1351,6 +1362,12 @@ document.addEventListener("click", e => {
   else if (act === "scope") { S.f.scope = a.dataset.scope; draw(); }
   else if (act === "clear-filters") { S.q = ""; S.f = { type: "", cat: "", who: "", acct: "", scope: "month" }; draw(); }
   else if (act === "rem-on") turnOnReminders();
+  else if (act === "bal-toggle") {
+    if (S.balOpen) {
+      a.setAttribute("aria-expanded", "false"); // turn the arrow while the list folds
+      foldShut($("#balBreak"), () => { S.balOpen = false; draw(); });
+    } else { S.balOpen = true; draw(); if (!calm()) growOpen($("#balBreak")); }
+  }
   else if (act === "fold") {
     const k = a.dataset.fold;
     if (foldOpen(k)) {
