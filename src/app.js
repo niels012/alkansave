@@ -89,7 +89,7 @@ const S = {
   editing: null, delArmed: false, notice: "", canSignIn: false,
   recurring: [], recLoaded: false, legacyStart: {}, legacyStartBy: null, sharedStart: null, armed: "",
   editingRec: null, q: "", searchOpen: false, showFilters: false, f: { type: "", cat: "", who: "", acct: "", scope: "month" },
-  rem: "", remBusy: false, statOpen: null, balOpen: false
+  rem: "", remBusy: false, statOpen: null, balOpen: false, openTrouble: ""
 };
 try { const h = location.hash.slice(1); if (VIEWS.includes(h)) S.view = h; } catch {}
 // A tapped bill reminder opens "/#budget" in an already-open app.
@@ -237,12 +237,37 @@ function draw() {
   const main = $("#main");
   const v = S.view;
   // Until the book has loaded, say so rather than showing empty months.
-  if (!S.demo && !S.loaded) { main.innerHTML = `<div class="empty"><p>Opening your family book…</p></div>`; return; }
+  if (!S.demo && !S.loaded) { main.innerHTML = openingScreen(); return; }
   main.dataset.tab = v; // lets styles.css size things per tab (not data-view: that marks the tab buttons)
   main.innerHTML = v === "stats" ? viewStats() : v === "budget" ? viewBudget() : v === "accounts" ? viewAccounts() : viewTrans();
   playAnims(main);
 }
 function paint() { draw(); refreshProfiles(); }
+
+// ---------- When the book won't open ----------
+// Two things can leave the app waiting forever without an error: the rest of the app's code failing to load
+// (an old saved copy of the app right after an update) or Firestore's copy of the book on this phone getting
+// stuck. So if opening fails, or is still going after 15 seconds, say so and offer a way out.
+const STALL_MS = 15000;
+function openingScreen() {
+  if (!S.openTrouble) return `<div class="empty"><p>Opening your family book…</p></div>`;
+  const failed = S.openTrouble === "failed";
+  return `<div class="empty"><h2>${failed ? "Couldn't open your family book" : "This is taking a while"}</h2>
+    <p>${failed ? "Something went wrong while opening AlkanSave." : "Your family book still hasn't opened."} Check that you're online, then reload.
+      If that doesn't help, refresh AlkanSave on this phone: it downloads the app and your family's entries again. Nothing in the book is lost and you stay signed in.</p>
+    <div class="banner-actions"><button class="btn primary" type="button" data-act="reload">Reload</button>
+      <button class="btn" type="button" data-act="refresh-phone">Refresh AlkanSave on this phone</button></div></div>`;
+}
+// Clears this phone's saved copy of the app (service worker and its files) and Firestore's copy of the book,
+// then reloads. Sign-in and entries saved "on this phone only" (localStorage) are kept.
+async function refreshPhone() {
+  try { for (const r of await navigator.serviceWorker?.getRegistrations?.() || []) await r.unregister(); } catch {}
+  try { for (const k of await caches.keys()) if (k.startsWith("alkansave-")) await caches.delete(k); } catch {}
+  try {
+    for (const d of await indexedDB.databases()) if (d.name && d.name.startsWith("firestore/")) indexedDB.deleteDatabase(d.name);
+  } catch {}
+  location.reload();
+}
 
 // ---------- Motion ----------
 // Animations play only for things the person just did (switching tabs, opening a card), never for
@@ -1362,6 +1387,8 @@ document.addEventListener("click", e => {
   else if (act === "scope") { S.f.scope = a.dataset.scope; draw(); }
   else if (act === "clear-filters") { S.q = ""; S.f = { type: "", cat: "", who: "", acct: "", scope: "month" }; draw(); }
   else if (act === "rem-on") turnOnReminders();
+  else if (act === "reload") location.reload();
+  else if (act === "refresh-phone") { a.disabled = true; a.textContent = "Refreshing…"; refreshPhone(); }
   else if (act === "bal-toggle") {
     if (S.balOpen) {
       a.setAttribute("aria-expanded", "false"); // turn the arrow while the list folds
@@ -1421,6 +1448,13 @@ if ("serviceWorker" in navigator && import.meta.env.PROD) {
 }
 fillAccounts();
 draw();
+// Counts only the time spent opening the book, not time on the sign-in screens (.gate, from auth.js).
+let waited = 0;
+const stallWatch = setInterval(() => {
+  if (S.loaded || S.demo) { clearInterval(stallWatch); return; }
+  if (document.querySelector(".gate")) { waited = 0; return; }
+  if ((waited += 1000) >= STALL_MS && !S.openTrouble) { S.openTrouble = "slow"; hideSplash(); draw(); }
+}, 1000);
 (async () => {
   const { db, user, local, canSignIn } = await connect();
   S.user = user;
@@ -1465,4 +1499,7 @@ draw();
   }, () => {});
   // A phone left open overnight still adds bills that fall due when it's reopened.
   document.addEventListener("visibilitychange", () => { if (!document.hidden) postRecurring(); });
-})();
+})().catch(x => {
+  console.error("AlkanSave couldn't open the book:", x);
+  if (!S.loaded) { S.openTrouble = "failed"; hideSplash(); draw(); }
+});
