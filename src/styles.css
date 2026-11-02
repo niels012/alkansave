@@ -351,6 +351,10 @@ button.rec[disabled] { cursor: default; color: inherit; }
 
 /* Editing a recurring item: no transfers */
 .sheet[data-mode="rec"] label[for="t-transfer"] { display: none; }
+/* Recurring: the date box is hidden, so Account takes the whole row; "Repeats on" is a row of small pickers */
+.sheet[data-mode="rec"] .row2 { grid-template-columns: minmax(0, 1fr); }
+.rep-pick { display: flex; gap: 8px; }
+.rep-pick select { flex: 1 1 0; min-width: 0; }
 
 /* Filter sits in the Daily | Calendar pill; accent text when filters are open or on */
 .seg .seg-filter[aria-pressed="true"], .seg .seg-filter.has { color: var(--accent); }

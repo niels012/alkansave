@@ -193,6 +193,17 @@ test("editors can set up recurring bills as themselves; viewers cannot", async (
   await assertFails(setDoc(doc(as("ben"), "households", HID, "recurring", "r5"), rec("ben", { type: "transfer" })));
 });
 
+test("recurring bills can repeat on a weekday (first…fourth or last)", async () => {
+  const set = (id, extra) => setDoc(doc(as("ben"), "households", HID, "recurring", id), rec("ben", extra));
+  await assertSucceeds(set("w1", { week: 1, weekday: 1 })); // first Monday
+  await assertSucceeds(set("w2", { week: 5, weekday: 5 })); // last Friday
+  await assertFails(set("w3", { week: 6, weekday: 1 }));
+  await assertFails(set("w4", { week: 1, weekday: 7 }));
+  await assertFails(set("w5", { week: 1 })); // week without weekday
+  await assertFails(set("w6", { weekday: 1 }));
+  await assertFails(set("w7", { week: "1", weekday: 1 }));
+});
+
 test("any editor can mark a recurring bill posted, without changing its owner", async () => {
   await env.withSecurityRulesDisabled(ctx => setDoc(doc(ctx.firestore(), "households", HID, "recurring", "r1"), rec("ben")));
   const ref = doc(as("ana"), "households", HID, "recurring", "r1");

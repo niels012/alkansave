@@ -74,8 +74,15 @@
     <label class="amount-field" for="f-amount"><span>₱</span><input id="f-amount" inputmode="decimal" autocomplete="off" placeholder="0" aria-label="Amount in pesos"></label>
     <div class="row2">
       <label class="field" id="dateWrap"><span>Date</span><input type="date" id="f-date" required></label>
-      <label class="field" id="dayWrap" hidden><span>Day each month</span><select id="f-day"></select></label>
       <label class="field"><span id="acctLabel">Account</span><select id="f-acct"></select></label>
+    </div>
+    <div class="field" id="dayWrap" hidden><span>Repeats on</span>
+      <div class="rep-pick">
+        <select id="f-rep-by" aria-label="Repeat on a date or a weekday"><option value="date">Date</option><option value="weekday">Weekday</option></select>
+        <select id="f-day" aria-label="Day of the month"></select>
+        <select id="f-week" aria-label="Which one in the month" hidden></select>
+        <select id="f-weekday" aria-label="Day of the week" hidden></select>
+      </div>
     </div>
     <label class="field" id="toWrap" hidden><span>To account</span><select id="f-to"></select></label>
     <div class="field" id="catWrap"><span>Category</span>
@@ -83,7 +90,8 @@
       <div class="cats" id="f-cats" hidden></div>
     </div>
     <label class="field"><span>Note</span><input id="f-note" maxlength="120" placeholder="e.g. Palengke run, Meralco bill"></label>
-    <label class="check" id="repeatWrap" hidden><input type="checkbox" id="f-repeat"> Repeat every month on this day</label>
+    <label class="check" id="repeatWrap" hidden><input type="checkbox" id="f-repeat"> Repeat every month</label>
+    <label class="field" id="repWhenWrap" hidden><span>Repeats on</span><select id="f-rep"></select></label>
     <p class="meta" id="f-meta" hidden></p>
     <p class="err" id="f-err" role="alert"></p>
     <div class="actions">

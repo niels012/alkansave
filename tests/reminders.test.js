@@ -19,6 +19,28 @@ test("bills set for the 29th–31st are due on the last day of shorter months", 
   assert.equal(billsDueOn([b], "2026-12-30").length, 0);
 });
 
+test("a bill set to a weekday is due on that weekday of each month", () => {
+  // November 2026 starts on a Sunday; February 2027 on a Monday.
+  const firstMonday = bill({ day: 2, week: 1, weekday: 1 });
+  assert.equal(billsDueOn([firstMonday], "2026-11-02").length, 1);
+  assert.equal(billsDueOn([firstMonday], "2026-11-05").length, 0); // its old date no longer counts
+  assert.equal(billsDueOn([firstMonday], "2027-02-01").length, 1); // when the 1st is itself a Monday
+  const firstSaturday = bill({ day: 7, week: 1, weekday: 6 });
+  assert.equal(billsDueOn([firstSaturday], "2026-11-07").length, 1);
+  assert.equal(billsDueOn([firstSaturday], "2026-12-05").length, 1);
+  const thirdWednesday = bill({ week: 3, weekday: 3 });
+  assert.equal(billsDueOn([thirdWednesday], "2026-11-18").length, 1);
+  assert.equal(billsDueOn([thirdWednesday], "2026-11-11").length, 0);
+});
+
+test("a bill set to the last weekday is due on the last one, even in five-week months", () => {
+  const lastFriday = bill({ week: 5, weekday: 5 });
+  assert.equal(billsDueOn([lastFriday], "2026-11-27").length, 1);
+  assert.equal(billsDueOn([lastFriday], "2026-11-20").length, 0);
+  assert.equal(billsDueOn([lastFriday], "2027-01-29").length, 1); // January 2027 has five Fridays
+  assert.equal(billsDueOn([lastFriday], "2027-01-22").length, 0);
+});
+
 test("income and stopped items get no reminder", () => {
   assert.equal(billsDueOn([bill({ type: "income" }), bill({ active: false })], "2026-12-05").length, 0);
 });

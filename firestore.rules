@@ -53,9 +53,14 @@ service cloud.firestore {
         && (d.type == 'transfer') == (d.get('to', null) != null);
     }
 
+    // A recurring item repeats on a date each month (day), or on a weekday: week 1–4 = first…fourth,
+    // 5 = last, with weekday 0–6 = Sunday…Saturday (both or neither; see src/schedule.js).
     function validRecurring(d) {
       let fields = ['type', 'amountCents', 'cat', 'acct', 'note', 'day', 'lastPosted', 'active', 'createdBy', 'createdAt'];
-      return d.keys().hasOnly(fields) && d.keys().hasAll(fields)
+      return d.keys().hasOnly(['type', 'amountCents', 'cat', 'acct', 'note', 'day', 'lastPosted', 'active', 'createdBy', 'createdAt', 'week', 'weekday'])
+        && d.keys().hasAll(fields)
+        && (('week' in d) == ('weekday' in d))
+        && (!('week' in d) || (d.week is int && d.week >= 1 && d.week <= 5 && d.weekday is int && d.weekday >= 0 && d.weekday <= 6))
         && d.type in ['expense', 'income']
         && d.amountCents is int && d.amountCents > 0 && d.amountCents <= 100000000000
         && shortStr(d.cat, 30) && shortStr(d.acct, 30) && shortStr(d.note, 200)

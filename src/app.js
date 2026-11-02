@@ -2,6 +2,7 @@ import { connect } from "./data/index.js";
 import { leaveDeviceOnly } from "./prefs.js";
 import { isIOS, isStandalone } from "./device.js";
 import { hideSplash } from "./splash.js";
+import { dueDate, patternsFor, repeatLabel, byWeekday, WEEKS, WEEKDAYS } from "./schedule.js";
 
 // ---------- Reference data ----------
 const CATS = {
@@ -130,18 +131,31 @@ function cleanRec(id, d) {
     id, type: d.type, amount: Number(d.amount),
     cat: String(d.cat || "other"), acct: String(d.acct || "cash"), note: String(d.note || "").slice(0, 200),
     day: Math.min(31, Math.max(1, Math.round(Number(d.day)) || 1)),
+    // Repeating on a weekday instead of a date (src/schedule.js): week 1–4 or 5 (last), weekday 0–6.
+    ...(byWeekday({ week: Number(d.week), weekday: Number(d.weekday) }) ? { week: Number(d.week), weekday: Number(d.weekday) } : {}),
     lastPosted: /^\d{4}-\d{2}$/.test(String(d.lastPosted || "")) ? d.lastPosted : todayISO().slice(0, 7),
     active: d.active !== false, createdBy: typeof d.createdBy === "string" ? d.createdBy : null, createdAt: Number(d.createdAt) || 0
   };
 }
-// The fields a recurring doc is saved with (no id).
-const recData = r => ({ type: r.type, amount: r.amount, cat: r.cat, acct: r.acct, note: r.note, day: r.day, lastPosted: r.lastPosted, active: r.active, createdBy: r.createdBy, createdAt: r.createdAt });
+// The fields a recurring doc is saved with (no id); week and weekday only when it repeats on a weekday.
+const recData = r => ({
+  type: r.type, amount: r.amount, cat: r.cat, acct: r.acct, note: r.note, day: r.day,
+  ...(byWeekday(r) ? { week: r.week, weekday: r.weekday } : {}),
+  lastPosted: r.lastPosted, active: r.active, createdBy: r.createdBy, createdAt: r.createdAt
+});
 const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
-const ordinal = n => n + (n % 100 >= 11 && n % 100 <= 13 ? "th" : ({ 1: "st", 2: "nd", 3: "rd" }[n % 10] || "th"));
-const recWhen = day => day >= 29 ? `${ordinal(day)} (or the last day)` : ordinal(day);
 // When a recurring item will next be added, as "Dec 1".
-const recNext = r => { const m = shiftMonth(r.lastPosted, 1); return new Date(`${m}-${pad(Math.min(r.day, daysIn(m)))}T00:00:00`).toLocaleDateString("en-PH", { month: "short", day: "numeric" }); };
+const recNext = r => new Date(`${dueDate(r, shiftMonth(r.lastPosted, 1))}T00:00:00`).toLocaleDateString("en-PH", { month: "short", day: "numeric" });
 const parseAmount = raw => Math.round((parseFloat(String(raw).replace(/[₱,\s]/g, "")) || 0) * 100) / 100;
+// Amount boxes show thousands separators as you type ("250000" → "250,000"); everything that reads them drops the commas.
+function withCommas(raw) {
+  const s = String(raw).replace(/[^\d.-]/g, "");
+  const neg = s.startsWith("-") ? "-" : "";
+  const [int = "", ...rest] = s.replace(/-/g, "").split(".");
+  const dec = rest.length ? "." + rest.join("").slice(0, 2) : "";
+  return neg + int.replace(/^0+(?=\d)/, "").replace(/\B(?=(\d{3})+(?!\d))/g, ",") + dec;
+}
+const grouped = n => n ? withCommas(String(n)) : "";
 
 // ---------- People ----------
 const DEMO_PEOPLE = {
@@ -584,7 +598,7 @@ function viewBudget() {
     return `<div class="bud"><span class="ico" style="--c:${c.c}" aria-hidden="true">${c.e}</span>
       <div class="bud-body"><span class="nm">${esc(c.n)}</span><div class="bud-foot">${foot}</div>
         ${l ? `<div class="meter"><i style="width:${pct.toFixed(1)}%;--c:${barColor(s, l)}"></i></div>` : ""}</div>
-      <label class="limit"><span>₱</span><input id="lim-${c.k}" data-lim="${c.k}" inputmode="numeric" value="${l || ""}" placeholder="No limit" aria-label="Monthly limit for ${esc(c.n)}"${editable ? "" : " disabled"}></label></div>`;
+      <label class="limit"><span>₱</span><input id="lim-${c.k}" data-lim="${c.k}" inputmode="numeric" value="${grouped(l)}" placeholder="No limit" aria-label="Monthly limit for ${esc(c.n)}"${editable ? "" : " disabled"}></label></div>`;
   }).join("");
   return head + `<section class="card"><div class="row-list">${rows}</div></section>` + recurringSection() + reminderSection();
 }
@@ -598,7 +612,7 @@ function nextReminder() {
   for (const r of S.recurring) {
     if (!r.active || r.type !== "expense") continue;
     for (const m of [today.slice(0, 7), shiftMonth(today.slice(0, 7), 1)]) {
-      const due = `${m}-${pad(Math.min(r.day, daysIn(m)))}`;
+      const due = dueDate(r, m);
       const d = new Date(due + "T00:00:00"); d.setDate(d.getDate() - 1);
       const remind = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
       if (remind > today) { if (!best || remind < best.remind) best = { remind, due, r }; break; }
@@ -649,12 +663,12 @@ async function turnOffReminders() {
 
 function recurringSection() {
   if (S.demo) return "";
-  const list = S.recurring.filter(r => r.active).sort((a, b) => a.day - b.day);
+  const list = S.recurring.filter(r => r.active).sort((a, b) => dueDate(a, S.month).localeCompare(dueDate(b, S.month)));
   const rows = list.map(r => {
     const c = catOf(r.type, r.cat);
     return `<button class="rec" type="button" data-act="rec-edit" data-id="${esc(r.id)}"${S.canWrite ? "" : " disabled"}>
       <span class="ico" style="--c:${c.c}" aria-hidden="true">${c.e}</span>
-      <span class="rec-main"><span class="nm">${esc(r.note || c.n)}</span><span class="sub">${esc(c.n)} · ${recWhen(r.day)} of each month · ${esc(acctOf(r.acct).n)}</span></span>
+      <span class="rec-main"><span class="nm">${esc(r.note || c.n)}</span><span class="sub">${esc(c.n)} · ${repeatLabel(r)} of each month · ${esc(acctOf(r.acct).n)}</span></span>
       <span class="num ${r.type === "income" ? "inc" : "exp"}">${peso(r.amount)}</span></button>`;
   }).join("");
   return `<section class="card"><span class="label">Recurring every month</span>
@@ -787,7 +801,7 @@ function startSection() {
     const owed = a.k === "card";
     const v = st[a.k] ? (owed ? -st[a.k] : st[a.k]) : 0;
     const value = editable
-      ? `<label class="limit"><span>₱</span><input ${attr}="${a.k}" inputmode="decimal" value="${v || ""}" placeholder="0" aria-label="Starting ${owed ? "amount owed on" : "balance of"} ${esc(a.n)}"></label>`
+      ? `<label class="limit"><span>₱</span><input ${attr}="${a.k}" inputmode="decimal" value="${grouped(v)}" placeholder="0" aria-label="Starting ${owed ? "amount owed on" : "balance of"} ${esc(a.n)}"></label>`
       : `<span class="num muted-num">${v ? peso(v) : "—"}</span>`;
     return `<div class="acct">${acctIcon(a)}<div><div class="nm">${esc(a.n)}</div><div class="sub">${owed ? "Owed when you started" : "Had when you started"}</div></div>${value}</div>`;
   };
@@ -797,7 +811,7 @@ function startSection() {
   const me = S.meId || "local";
   const mine = `<div class="acct-owner">${avatar(me)}<span class="nm">Your accounts</span></div>`
     + PERSONAL_ACCOUNTS.filter(a => hasAccount(me, a)).map(a => row(a, startsOf(me), true, "data-start")).join("")
-    + (!hasAccount(me, DEEL) ? "" : `<div class="acct">${acctIcon(DEEL)}<div><div class="nm">Deel</div><div class="sub">Your balance now, in US dollars</div></div><label class="limit"><span>$</span><input data-start="deel" inputmode="decimal" value="${startsOf(me).deel || ""}" placeholder="0" aria-label="Deel balance in US dollars"></label></div>`);
+    + (!hasAccount(me, DEEL) ? "" : `<div class="acct">${acctIcon(DEEL)}<div><div class="nm">Deel</div><div class="sub">Your balance now, in US dollars</div></div><label class="limit"><span>$</span><input data-start="deel" inputmode="decimal" value="${grouped(startsOf(me).deel)}" placeholder="0" aria-label="Deel balance in US dollars"></label></div>`);
   return `<section class="card">${head}<div class="fold-body" data-fold="starts">
     <p class="meta">What was already in each account before you started logging. The shared Cash and card are for the whole family; your GCash, GoTyme, MariBank and PSBank are just yours.</p>${shared}${mine}</div></section>`;
 }
@@ -896,7 +910,33 @@ function fillAccounts() {
   const me = S.demo ? "demo-a" : S.meId || "local";
   const opts = ACCOUNTS.filter(a => hasAccount(me, a)).map(a => `<option value="${a.k}">${esc(a.n)}</option>`).join("");
   $("#f-acct").innerHTML = opts; $("#f-to").innerHTML = opts;
-  $("#f-day").innerHTML = Array.from({ length: 31 }, (_, i) => `<option value="${i + 1}">${recWhen(i + 1)}</option>`).join("");
+  $("#f-day").innerHTML = Array.from({ length: 31 }, (_, i) => `<option value="${i + 1}">${repeatLabel({ day: i + 1 })}</option>`).join("");
+  $("#f-week").innerHTML = WEEKS.map((w, i) => `<option value="${i + 1}">${w[0].toUpperCase() + w.slice(1)}</option>`).join("");
+  $("#f-weekday").innerHTML = [1, 2, 3, 4, 5, 6, 0].map(d => `<option value="${d}">${WEEKDAYS[d]}</option>`).join(""); // Monday first
+}
+
+// ---------- Repeating: on a date or a weekday ----------
+// New entry: "Repeat every month" offers the ways its date can repeat ("the 3rd", "the first Tuesday", …).
+const capital = s => s[0].toUpperCase() + s.slice(1);
+function syncRepeat() {
+  const wrap = $("#repWhenWrap"), sel = $("#f-rep");
+  wrap.hidden = $("#repeatWrap").hidden || !$("#f-repeat").checked;
+  const date = $("#f-date").value;
+  if (wrap.hidden || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return;
+  // Keep the kind of choice (date, nth weekday, last weekday) when the date changes, if it still fits.
+  const kind = p => !p ? "" : p.week === 5 ? "last" : p.week ? "nth" : "date";
+  const was = kind(patternsFor(sel.dataset.date || date)[Number(sel.value)]);
+  const list = patternsFor(date);
+  sel.innerHTML = list.map((p, i) => `<option value="${i}">${capital(`the ${repeatLabel(p)} of each month`)}</option>`).join("");
+  const at = k => list.findIndex(p => kind(p) === k);
+  sel.value = String(Math.max(0, at(was) >= 0 ? at(was) : was === "last" ? at("nth") : 0));
+  sel.dataset.date = date;
+}
+const chosenPattern = () => patternsFor($("#f-date").value)[Number($("#f-rep").value)] || { day: Number($("#f-date").value.slice(8)) };
+// Editing a recurring item: "A date" shows the day picker, "A weekday" shows First…Last and Monday…Sunday.
+function syncRepBy() {
+  const wk = $("#f-rep-by").value === "weekday";
+  $("#f-day").hidden = wk; $("#f-week").hidden = !wk; $("#f-weekday").hidden = !wk;
 }
 // Selects an account, adding an old one (Maya, Bank) just for this entry so editing it doesn't switch accounts.
 function pickAccount(sel, k) {
@@ -927,9 +967,10 @@ function setType(type, sel) {
   $("#catWrap").hidden = tr; $("#toWrap").hidden = !tr;
   $("#acctLabel").textContent = tr ? "From account" : "Account";
   $("#repeatWrap").hidden = tr || !!S.editing || !!S.editingRec || S.demo;
+  syncRepeat();
   if (!tr) renderCats(type, sel); // no default: a new entry starts with "Choose a category"
 }
-// The sheet edits either an entry (date) or a recurring item (day of the month; no transfers).
+// The sheet edits either an entry (date) or a recurring item (when it repeats; no transfers).
 function setSheetMode(rec) {
   sheet.dataset.mode = rec ? "rec" : "entry";
   $("#dateWrap").hidden = rec; $("#dayWrap").hidden = !rec;
@@ -942,9 +983,10 @@ function openSheet(t) {
   const del = $("#f-del"); del.hidden = !t; del.classList.remove("armed"); del.textContent = "Delete";
   const today = todayISO();
   const defDate = S.view === "calendar" ? S.selDay : (today.slice(0, 7) === S.month ? today : `${S.month}-01`);
-  setType(t ? t.type : "expense", t ? t.cat : null);
   $("#f-repeat").checked = false;
-  $("#f-amount").value = t ? String(t.amount) : "";
+  $("#f-rep").dataset.date = "";
+  setType(t ? t.type : "expense", t ? t.cat : null);
+  $("#f-amount").value = t ? grouped(t.amount) : "";
   $("#f-date").value = t ? t.date : defDate;
   fillAccounts();
   pickAccount($("#f-acct"), t ? t.acct : "cash");
@@ -965,9 +1007,16 @@ function openRecSheet(r) {
   $("#f-err").textContent = "";
   const del = $("#f-del"); del.hidden = false; del.classList.remove("armed"); del.textContent = "Stop repeating";
   setType(r.type, r.cat);
-  $("#f-amount").value = String(r.amount);
-  $("#f-day").value = String(r.day);
+  $("#f-amount").value = grouped(r.amount);
   fillAccounts();
+  const wk = byWeekday(r);
+  $("#f-rep-by").value = wk ? "weekday" : "date";
+  $("#f-day").value = String(r.day);
+  // Switching a date to a weekday starts from the weekday its day fell on when it was set up.
+  const first = new Date(`${r.lastPosted}-${pad(Math.min(r.day, daysIn(r.lastPosted)))}T00:00:00`);
+  $("#f-week").value = String(wk ? r.week : Math.min(5, Math.ceil(r.day / 7)));
+  $("#f-weekday").value = String(wk ? r.weekday : first.getDay());
+  syncRepBy();
   pickAccount($("#f-acct"), r.acct);
   $("#f-note").value = r.note;
   const meta = $("#f-meta");
@@ -1001,9 +1050,13 @@ async function saveRecurringEdit(type, amount, catEl) {
   if (!catEl) { err.textContent = "Pick a category."; showCats(true); return; }
   const r = S.recurring.find(x => x.id === S.editingRec);
   if (!r) { closeSheet(); return; }
+  const { week, weekday, ...rest } = r;
+  const when = $("#f-rep-by").value === "weekday"
+    ? { week: Number($("#f-week").value), weekday: Number($("#f-weekday").value) }
+    : { day: Number($("#f-day").value) };
   const next = recData({
-    ...r, type, amount: Math.round(amount * 100) / 100, cat: catEl.value, acct: $("#f-acct").value,
-    note: $("#f-note").value.trim().slice(0, 120), day: Number($("#f-day").value)
+    ...rest, type, amount: Math.round(amount * 100) / 100, cat: catEl.value, acct: $("#f-acct").value,
+    note: $("#f-note").value.trim().slice(0, 120), ...when
   });
   const btn = $("#f-save"); btn.disabled = true;
   try {
@@ -1017,6 +1070,8 @@ async function saveRecurringEdit(type, amount, catEl) {
 sheet.addEventListener("change", e => {
   if (e.target.name === "type") setType(e.target.value);
   else if (e.target.name === "cat") { updateCatToggle(); showCats(false); $("#f-err").textContent = ""; }
+  else if (e.target.id === "f-repeat" || e.target.id === "f-date") syncRepeat();
+  else if (e.target.id === "f-rep-by") syncRepBy();
 });
 sheet.addEventListener("submit", async e => {
   e.preventDefault();
@@ -1046,7 +1101,7 @@ sheet.addEventListener("submit", async e => {
   const repeats = !prev && type !== "transfer" && $("#f-repeat").checked;
   const where = type === "transfer" ? `${acctOf(acct).n} → ${acctOf(to).n}` : `${catOf(type, data.cat).n} · ${acctOf(acct).n}`;
   const saved = prev ? "✓ Entry updated"
-    : `✓ ${peso(data.amount)} ${type} added · ${where}${repeats ? ` · repeats on the ${recWhen(Number(date.slice(8)))}` : ""}`;
+    : `✓ ${peso(data.amount)} ${type} added · ${where}${repeats ? ` · repeats on the ${repeatLabel(chosenPattern())}` : ""}`;
   if (S.demo) {
     const row = { id: prev ? prev.id : "demo" + Date.now(), ...data };
     S.demoTx = prev ? S.demoTx.map(t => t.id === prev.id ? row : t) : [...S.demoTx, row];
@@ -1058,10 +1113,10 @@ sheet.addEventListener("submit", async e => {
     if (!prev && type !== "transfer" && $("#f-repeat").checked) {
       // This entry is the first month; later months are added by postRecurring() under the same id scheme.
       const rid = newId(), month = date.slice(0, 7);
-      await writeWithRetry(() => S.db.collection("recurring").doc(rid).set({
-        type, amount: data.amount, cat: data.cat, acct, note: data.note, day: Number(date.slice(8)),
+      await writeWithRetry(() => S.db.collection("recurring").doc(rid).set(recData({
+        type, amount: data.amount, cat: data.cat, acct, note: data.note, ...chosenPattern(),
         lastPosted: month, active: true, createdBy: me, createdAt: Date.now()
-      }));
+      })));
       ref = S.db.collection("tx").doc(`r_${rid}_${month}`);
       data.rec = rid;
     }
@@ -1151,7 +1206,7 @@ async function postRecurring() {
     try {
       for (let i = 0; i < 12; i++) {
         const next = shiftMonth(month, 1);
-        const date = `${next}-${pad(Math.min(r.day, daysIn(next)))}`;
+        const date = dueDate(r, next);
         if (next > thisMonth || date > today) break;
         await S.db.collection("tx").doc(`r_${r.id}_${next}`).set({
           type: r.type, amount: r.amount, date, cat: r.cat, acct: r.acct, to: null, note: r.note,
@@ -1431,6 +1486,26 @@ $("#main").addEventListener("change", e => {
   else if (d.startShared) saveSharedStart(d.startShared, e.target.value);
   else if (d.role) S.user.setRole(d.role, e.target.value).catch(() => { flash("Couldn't change their role. Check your connection and try again."); draw(); });
   else if (d.filter) { S.f[d.filter] = e.target.value; draw(); }
+});
+// Commas go in while typing in any amount box; the cursor stays after the same digit it was after.
+const AMOUNT_INPUTS = "#f-amount, input[data-lim], input[data-start], input[data-start-shared]";
+document.addEventListener("input", e => {
+  const el = e.target;
+  if (!el.matches || !el.matches(AMOUNT_INPUTS)) return;
+  const before = el.value, after = withCommas(before);
+  if (after === before) return;
+  const kept = before.slice(0, el.selectionStart ?? before.length).replace(/[^\d.-]/g, "").length;
+  let pos = 0;
+  for (let seen = 0; pos < after.length && seen < kept; pos++) if (/[\d.-]/.test(after[pos])) seen++;
+  el.value = after;
+  el.setSelectionRange(pos, pos);
+});
+// Backspace just after a comma deletes the digit before it (the comma alone would only come straight back).
+document.addEventListener("beforeinput", e => {
+  const el = e.target;
+  if (e.inputType !== "deleteContentBackward" || !el.matches || !el.matches(AMOUNT_INPUTS)) return;
+  const c = el.selectionStart;
+  if (c && c === el.selectionEnd && el.value[c - 1] === ",") el.setSelectionRange(c - 1, c - 1);
 });
 // Typing in search only redraws the results, so the search box keeps focus and the keyboard stays up.
 $("#main").addEventListener("input", e => {
