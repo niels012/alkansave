@@ -6,25 +6,25 @@ import { hideSplash } from "./splash.js";
 // ---------- Reference data ----------
 const CATS = {
   expense: [
-    { k: "food", n: "Food", e: "🍜", c: "#E0734F" },
-    { k: "groceries", n: "Groceries", e: "🛒", c: "#4C9A66" },
-    { k: "transport", n: "Transport", e: "🚌", c: "#4B7BC8" },
-    { k: "bills", n: "Bills & Utilities", e: "💡", c: "#C29A1E" },
-    { k: "household", n: "Household", e: "🏠", c: "#8C69BD" },
-    { k: "kids", n: "Kids & School", e: "🎒", c: "#D35B89" },
-    { k: "health", n: "Health", e: "💊", c: "#2A9F9C" },
-    { k: "shopping", n: "Shopping", e: "🛍️", c: "#B3643A" },
-    { k: "leisure", n: "Leisure", e: "🎬", c: "#6E8B36" },
-    { k: "padala", n: "Padala & Family", e: "💌", c: "#A07A50" },
-    { k: "pet", n: "Pet", e: "🐾", c: "#3E8BB0" },
-    { k: "other", n: "Other", e: "📦", c: "#7A8882" }
+    { k: "food", n: "Food", e: "🍜", c: "#FF5A36" },
+    { k: "groceries", n: "Groceries", e: "🛒", c: "#22C55E" },
+    { k: "transport", n: "Transport", e: "🚌", c: "#3B82F6" },
+    { k: "bills", n: "Bills & Utilities", e: "💡", c: "#FFC800" },
+    { k: "household", n: "Household", e: "🏠", c: "#8B5CF6" },
+    { k: "kids", n: "Kids & School", e: "🎒", c: "#D946EF" },
+    { k: "health", n: "Health", e: "💊", c: "#14B8A6" },
+    { k: "shopping", n: "Shopping", e: "🛍️", c: "#FF9F1C" },
+    { k: "leisure", n: "Leisure", e: "🎬", c: "#A3E635" },
+    { k: "padala", n: "Padala & Family", e: "💌", c: "#FF4D8D" },
+    { k: "pet", n: "Pet", e: "🐾", c: "#22D3EE" },
+    { k: "other", n: "Other", e: "📦", c: "#94A3B8" }
   ],
   income: [
-    { k: "salary", n: "Salary", e: "💼", c: "#2A5EC3" },
-    { k: "business", n: "Business", e: "🏪", c: "#3F8F7A" },
-    { k: "bonus", n: "13th Month & Bonus", e: "🎁", c: "#9A6BC2" },
-    { k: "gift", n: "Gifts", e: "🧧", c: "#C9573F" },
-    { k: "other_in", n: "Other income", e: "➕", c: "#7A8882" }
+    { k: "salary", n: "Salary", e: "💼", c: "#3B82F6" },
+    { k: "business", n: "Business", e: "🏪", c: "#22C55E" },
+    { k: "bonus", n: "13th Month & Bonus", e: "🎁", c: "#A855F7" },
+    { k: "gift", n: "Gifts", e: "🧧", c: "#FF4D6D" },
+    { k: "other_in", n: "Other income", e: "➕", c: "#94A3B8" }
   ]
 };
 const TRANSFER = { k: "transfer", n: "Transfer", e: "🔁", c: "#7A8882" };
@@ -63,6 +63,13 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": 
 const shiftMonth = (m, d) => { const [y, mo] = m.split("-").map(Number); const t = new Date(y, mo - 1 + d, 1); return `${t.getFullYear()}-${pad(t.getMonth() + 1)}`; };
 const monthLabel = m => { const [y, mo] = m.split("-").map(Number); return new Date(y, mo - 1, 1).toLocaleDateString("en-PH", { month: "long", year: "numeric" }); };
 const daysIn = m => { const [y, mo] = m.split("-").map(Number); return new Date(y, mo, 0).getDate(); };
+// White or dark text, whichever reads better on a "#RRGGBB" colour (bright yellows and greens get dark text).
+const inkOn = hex => {
+  const lin = v => { v /= 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+  const [r, g, b] = [1, 3, 5].map(i => lin(parseInt(hex.slice(i, i + 2), 16)));
+  const L = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return 1.05 / (L + 0.05) >= (L + 0.05) / 0.06 ? "#fff" : "#111A2C";
+};
 const ago = ts => { const s = Math.max(0, (Date.now() - ts) / 1000); if (s < 60) return "just now"; if (s < 3600) return Math.floor(s / 60) + "m ago"; if (s < 86400) return Math.floor(s / 3600) + "h ago"; return Math.floor(s / 86400) + "d ago"; };
 
 // ---------- State ----------
@@ -160,8 +167,11 @@ function refreshProfiles() {
 }
 
 // ---------- Sample data (local only, never saved) ----------
+// A month with every category in it. Early in the current month the days are squeezed into the ones
+// that have passed, so the whole sample still shows without entries dated in the future.
 function buildDemo() {
   const m = S.month, last = m === todayISO().slice(0, 7) ? Number(todayISO().slice(8)) : daysIn(m);
+  const day = d => last >= 28 ? d : Math.max(1, Math.ceil(d * last / 28));
   const rows = [
     [1, "income", "salary", 32000, "maribank", "a", "Sahod, 1st cutoff"],
     [1, "expense", "bills", 14500, "maribank", "a", "Rent"],
@@ -189,11 +199,15 @@ function buildDemo() {
     [21, "expense", "kids", 600, "cash", "b", "Baon for the week"],
     [22, "expense", "food", 389, "gcash", "a", "Coffee & pandesal"],
     [23, "expense", "transport", 1500, "cash", "a", "Gas"],
-    [24, "expense", "pet", 850, "gcash", "b", "Dog food"]
+    [24, "expense", "pet", 850, "gcash", "b", "Dog food"],
+    [25, "expense", "other", 750, "cash", "a", "Barangay clearance & photocopies"],
+    [26, "income", "gift", 2000, "gcash", "b", "Birthday money from Tita"],
+    [27, "income", "bonus", 15000, "maribank", "a", "13th month, first half"],
+    [28, "income", "other_in", 3500, "gotyme", "a", "Sold old phone"]
   ];
-  S.demoTx = rows.filter(r => r[0] <= last).map((r, i) => ({
-    id: "demo" + i, type: r[1], amount: r[3], date: `${m}-${pad(r[0])}`, cat: r[1] === "transfer" ? "transfer" : r[2],
-    acct: r[4], to: r[7] || null, note: r[6], by: "demo-" + r[5], createdAt: Date.now() - (last - r[0]) * 86400000 - i * 600000, updatedAt: 0, updatedBy: null
+  S.demoTx = rows.map((r, i) => ({
+    id: "demo" + i, type: r[1], amount: r[3], date: `${m}-${pad(day(r[0]))}`, cat: r[1] === "transfer" ? "transfer" : r[2],
+    acct: r[4], to: r[7] || null, note: r[6], by: "demo-" + r[5], createdAt: Date.now() - (last - day(r[0])) * 86400000 - i * 600000, updatedAt: 0, updatedBy: null
   }));
   S.demoBudgets = { food: 4000, groceries: 9000, transport: 3000, bills: 21000, household: 2000, kids: 3500, health: 1500, shopping: 2500, leisure: 2000, padala: 3000, pet: 1200 };
 }
@@ -485,7 +499,7 @@ function viewStats() {
       <span class="ctx-m"><span class="t">${esc(t.note || catOf(t.type, t.cat).n)}</span><span class="s">${esc(acct)} · ${esc(who(t.by).name)}</span></span>
       <span class="num ${type === "income" ? "inc" : "exp"}">${peso(t.amount)}</span></div>`;
   }).join("");
-  const legend = parts.map(p => `<button type="button" class="lg${open === p.k ? " open" : ""}" data-act="stat-cat" data-cat="${esc(p.k)}" aria-expanded="${open === p.k}" style="--c:${p.c}">
+  const legend = parts.map(p => `<button type="button" class="lg${open === p.k ? " open" : ""}" data-act="stat-cat" data-cat="${esc(p.k)}" aria-expanded="${open === p.k}" style="--c:${p.c};--ci:${inkOn(p.c)}">
       <span class="pct num">${Math.round(p.v / total * 100)}%</span><span class="n">${p.e} ${esc(p.n)}</span><span class="num">${peso(p.v)}</span>
       <svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>
     ${open === p.k ? `<div class="cat-tx">${entries(p.k)}</div>` : ""}`).join("");
@@ -494,7 +508,8 @@ function viewStats() {
   const max = Math.max(...Object.values(byWho));
   const whoRows = Object.entries(byWho).sort((a, b) => b[1] - a[1]).map(([id, v]) => `<div class="who-row">${avatar(id === "unknown" ? null : id)}<span class="nm">${esc(who(id === "unknown" ? null : id).name)}</span><span class="num">${peso(v)}</span><div class="meter"><i style="width:${(v / max * 100).toFixed(1)}%;--c:${esc(who(id === "unknown" ? null : id).color)}"></i></div></div>`).join("");
   return seg + `<section class="card"><span class="label">By category</span><div class="donut-wrap">${donut(parts, total, `${type} by category`, open)}<div class="legend">${legend}</div></div>
-    <p class="meta">Tap a category to see its entries.</p></section>
+    <p class="meta">Tap a category to see its entries.</p>
+    ${S.demo ? "" : `<button class="link" type="button" data-act="demo">Preview with sample data</button>`}</section>
     <section class="card"><span class="label">${type === "expense" ? "Who spent" : "Who earned"} · ${esc(monthLabel(S.month))}</span>${whoRows}</section>`;
 }
 
@@ -1263,7 +1278,7 @@ document.addEventListener("click", e => {
   if (v) { if (v.dataset.view !== S.view) animate("view"); S.view = v.dataset.view; S.armed = ""; if (!S.q) S.searchOpen = false; try { localStorage.setItem("alkansave.view", S.view); } catch {} draw(); window.scrollTo(0, 0); return; }
   const a = e.target.closest("[data-act]"); if (!a) return;
   const act = a.dataset.act;
-  if (act === "prev" || act === "next") { S.month = shiftMonth(S.month, act === "prev" ? -1 : 1); animate(act); draw(); }
+  if (act === "prev" || act === "next") { S.month = shiftMonth(S.month, act === "prev" ? -1 : 1); if (S.demo) buildDemo(); animate(act); draw(); }
   else if (act === "add") openSheet(null);
   else if (act === "edit") { closeRow(); const t = txAll().find(x => x.id === a.dataset.id); if (t) openSheet(t); }
   else if (act === "tx-del") deleteFromRow(a);

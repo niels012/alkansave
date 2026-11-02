@@ -5,5 +5,8 @@ dist/
 .env.*.local
 .vercel
 
+# Local Claude Code settings (e.g. the dev server for its browser pane)
+.claude/
+
 # Firebase emulator logs
 *-debug.log

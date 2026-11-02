@@ -172,7 +172,7 @@ main.wrap { padding-block: 12px calc(var(--nav-h) + 96px + env(safe-area-inset-b
 .donut-mid { font-family: var(--display); font-weight: 700; }
 .legend { display: grid; gap: 8px; min-width: 0; }
 .lg { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; font-size: 14px; }
-.lg .pct { display: inline-block; min-width: 42px; text-align: center; font-size: 12px; font-weight: 700; color: #fff; background: var(--c); border-radius: 6px; padding: 1px 4px; }
+.lg .pct { display: inline-block; min-width: 42px; text-align: center; font-size: 12px; font-weight: 700; color: var(--ci, #fff); background: var(--c); border-radius: 6px; padding: 1px 4px; }
 .lg .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .lg .num { font-weight: 600; }
 .meter { height: 8px; border-radius: 999px; background: var(--sunk); overflow: hidden; }
