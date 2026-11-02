@@ -92,7 +92,7 @@ const S = {
   editing: null, delArmed: false, notice: "", canSignIn: false,
   recurring: [], recLoaded: false, legacyStart: {}, legacyStartBy: null, sharedStart: null, armed: "",
   editingRec: null, q: "", searchOpen: false, showFilters: false, f: { type: "", cat: "", who: "", acct: "", scope: "month" },
-  rem: "", remBusy: false, statOpen: null, balOpen: false, openTrouble: ""
+  rem: "", remBusy: false, statOpen: null, balOpen: false, openTrouble: "", undo: null
 };
 try { const h = location.hash.slice(1); if (VIEWS.includes(h)) S.view = h; } catch {}
 // A tapped bill reminder opens "/#budget" in an already-open app.
@@ -114,9 +114,14 @@ function clean(id, d) {
     note: String(d.note || "").slice(0, 200),
     by: typeof d.by === "string" ? d.by : null,
     createdAt: Number(d.createdAt) || 0, updatedAt: Number(d.updatedAt) || 0,
-    updatedBy: typeof d.updatedBy === "string" ? d.updatedBy : null
+    updatedBy: typeof d.updatedBy === "string" ? d.updatedBy : null,
+    order: Number.isFinite(d.order) ? d.order : null
   };
 }
+// Position within its day: smaller first. Entries nobody has moved sort newest-logged first; a moved one
+// gets an order between its new neighbours (see "Long-press an entry to move it").
+const posOf = t => t.order ?? -t.createdAt;
+const newestDayFirst = (a, b) => b.date.localeCompare(a.date) || posOf(a) - posOf(b);
 function cleanLimits(l) {
   const out = {};
   if (l && typeof l === "object") for (const c of CATS.expense) { const v = Number(l[c.k]); if (v > 0 && v < 1e10) out[c.k] = v; }
@@ -343,9 +348,10 @@ function drawChrome() {
   live.lastElementChild.textContent = { live: "Live · synced", saving: "Saving…", connecting: "Connecting…", error: "Sync paused", preview: "Sample data", local: "Saved on this device", offline: "Offline · saved on phone" }[ls] || "Connecting…";
 
   // Short messages (entry added, deleted, hints) pop up near the bottom so they're seen wherever you've scrolled.
-  if (S.notice !== lastToast) {
-    lastToast = S.notice;
-    toast.textContent = S.notice;
+  const toastKey = S.notice + (S.undo ? "\u0000undo" : "");
+  if (toastKey !== lastToast) {
+    lastToast = toastKey;
+    toast.innerHTML = esc(S.notice) + (S.undo ? ` <button type="button" class="toast-undo" data-act="undo">Undo</button>` : "");
     toast.hidden = !S.notice;
     if (S.notice) replay(toast, "anim-toast");
   }
@@ -475,7 +481,7 @@ function filterPanel() {
 }
 
 function searchResults() {
-  const list = filteredTx().sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt);
+  const list = filteredTx().sort(newestDayFirst);
   const where = S.f.scope === "all" ? "all time" : monthLabel(S.month);
   const q = S.q.trim();
   if (!list.length) {
@@ -500,7 +506,7 @@ function transBody() {
   else if (!mt.length) body = `<div class="empty"><h2>Nothing logged in ${esc(monthLabel(S.month))}</h2><p>Tap + to add an entry for this month.</p></div>`;
   else {
     const byDay = {};
-    [...mt].sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt).forEach(t => (byDay[t.date] = byDay[t.date] || []).push(t));
+    [...mt].sort(newestDayFirst).forEach(t => (byDay[t.date] = byDay[t.date] || []).push(t));
     body = Object.keys(byDay).map(d => dayGroup(d, byDay[d])).join("");
   }
   // The day's entries come first; the per-person summary sits below them.
@@ -523,7 +529,7 @@ function calendar(mt) {
   }
   const trailing = (7 - ((first + n) % 7)) % 7;
   for (let i = 0; i < trailing; i++) cells += `<span class="cell out" aria-hidden="true"></span>`;
-  const sel = mt.filter(t => t.date === S.selDay).sort((a, b) => b.createdAt - a.createdAt);
+  const sel = mt.filter(t => t.date === S.selDay).sort((a, b) => posOf(a) - posOf(b));
   return `<div class="cal"><div class="cal-g">${cells}</div></div>` + (sel.length ? dayGroup(S.selDay, sel) : `<p class="meta">Nothing logged on ${new Date(S.selDay + "T00:00:00").toLocaleDateString("en-PH", { month: "long", day: "numeric" })}.</p>`);
 }
 
@@ -553,7 +559,7 @@ function viewStats() {
   const parts = Object.entries(byCat).map(([k, v]) => ({ ...catOf(type, k), k, v })).sort((a, b) => b.v - a.v);
   const open = parts.some(p => p.k === S.statOpen) ? S.statOpen : null;
   // Each category opens to list its entries this month (newest first).
-  const entries = k => mt.filter(t => t.cat === k).sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt).map(t => {
+  const entries = k => mt.filter(t => t.cat === k).sort(newestDayFirst).map(t => {
     const d = new Date(t.date + "T00:00:00");
     const acct = t.type === "transfer" ? `${acctOf(t.acct).n} → ${acctOf(t.to).n}` : acctOf(t.acct).n;
     return `<div class="ctx"><span class="ctx-d"><b>${d.getDate()}</b>${d.toLocaleDateString("en-PH", { weekday: "short" })}</span>
@@ -826,7 +832,7 @@ function exportSection() {
 }
 
 function downloadCsv(scope) {
-  const rows = (scope === "month" ? monthTx() : txAll()).slice().sort((a, b) => a.date.localeCompare(b.date) || a.createdAt - b.createdAt);
+  const rows = (scope === "month" ? monthTx() : txAll()).slice().sort((a, b) => a.date.localeCompare(b.date) || posOf(a) - posOf(b));
   if (!rows.length) { flash(`Nothing logged in ${monthLabel(S.month)} yet.`); return; }
   // Quote text, and stop spreadsheet apps from treating a note like "=SUM(...)" as a formula.
   const cell = v => { let s = String(v ?? ""); if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
@@ -1095,7 +1101,8 @@ sheet.addEventListener("submit", async e => {
     cat: type === "transfer" ? "transfer" : catEl.value, acct, to: type === "transfer" ? to : null,
     note: $("#f-note").value.trim().slice(0, 120),
     by: prev ? prev.by : me, createdAt: prev ? prev.createdAt : Date.now(),
-    updatedAt: prev ? Date.now() : 0, updatedBy: prev ? me : null
+    updatedAt: prev ? Date.now() : 0, updatedBy: prev ? me : null,
+    ...(prev && prev.order != null && prev.date === date ? { order: prev.order } : {}) // keeps its place unless its day changes
   };
   if (data.date.slice(0, 7) !== S.month) S.month = data.date.slice(0, 7);
   if (S.view === "calendar") S.selDay = data.date;
@@ -1287,7 +1294,7 @@ const BTN = 42, PAD = 12;
 const ACTIONS_W = PAD + BTN + PAD + BTN + PAD; // 120: Delete + Edit
 const FULL_SWIPE = 0.6;
 let swipe = null, openRow = null, swipeHinted = false, delTimer = 0;
-function swipeBusy() { return !!(swipe && swipe.sideways && swipe.wrap.isConnected) || !!(openRow && openRow.isConnected); }
+function swipeBusy() { return !!(swipe && swipe.sideways && swipe.wrap.isConnected) || !!(openRow && openRow.isConnected) || !!move; }
 const catchUp = () => { if (pending && !swipeBusy()) draw(); };
 const rowOf = el => el && el.closest ? el.closest(".tx-wrap") : null;
 const actionsWidth = () => ACTIONS_W;
@@ -1371,6 +1378,122 @@ addEventListener("pointerup", endSwipe);
 addEventListener("pointercancel", endSwipe);
 addEventListener("scroll", () => { if (openRow && !swipe) closeRow(); }, { passive: true });
 
+// ---------- Long-press an entry to move it ----------
+// Hold an entry still for HOLD_MS and it lifts; drag it up or down among that day's entries and let go.
+// It stays on its day. The new place is saved as an order between its new neighbours (posOf), so the whole
+// family sees the same order; only that entry is written. Not in search or filter results (they mix days),
+// and not for view-only members.
+const HOLD_MS = 450, STEP = 60000; // STEP: gap when dropped first or last (orders start from -createdAt)
+let hold = null, move = null;
+const pageTop = el => el.getBoundingClientRect().top + scrollY;
+
+$("#main").addEventListener("pointerdown", e => {
+  const wrap = rowOf(e.target);
+  if (!wrap || wrap.dataset.ro || e.target.closest(".tx-actions") || move || !(S.demo || S.canWrite) || filtering()) return;
+  if ((e.pointerType === "mouse" && e.button !== 0) || (openRow && openRow.isConnected)) return;
+  clearTimeout(hold && hold.timer);
+  hold = { wrap, id: e.pointerId, x0: e.clientX, y0: e.clientY, timer: setTimeout(startMove, HOLD_MS) };
+});
+// Any real movement before the hold completes is a scroll or a swipe, not a move.
+addEventListener("pointermove", e => {
+  if (hold && e.pointerId === hold.id && Math.hypot(e.clientX - hold.x0, e.clientY - hold.y0) > 8) { clearTimeout(hold.timer); hold = null; }
+  if (move && e.pointerId === move.id) { move.y = e.clientY; dragTo(); }
+});
+
+function startMove() {
+  const h = hold; hold = null;
+  if (!h || !h.wrap.isConnected) return;
+  const day = h.wrap.closest(".day"), rows = day ? [...day.querySelectorAll(".tx-wrap")] : [];
+  if (rows.length < 2) { flash("This is the only entry on its day, so there's nowhere to move it.", 3000); return; }
+  swipe = null; // the hold wins over a swipe
+  const idx = rows.indexOf(h.wrap), others = rows.filter(r => r !== h.wrap);
+  move = {
+    id: h.id, wrap: h.wrap, idx, target: idx, others, y: h.y0,
+    startY: h.y0 + scrollY, top: pageTop(h.wrap), height: h.wrap.offsetHeight,
+    min: pageTop(rows[0]) - pageTop(h.wrap),
+    max: pageTop(rows[rows.length - 1]) + rows[rows.length - 1].offsetHeight - pageTop(h.wrap) - h.wrap.offsetHeight,
+    mids: others.map(r => pageTop(r) + r.offsetHeight / 2)
+  };
+  h.wrap.dataset.swipedAt = String(Date.now()); // no swipe hint for the click that follows
+  h.wrap.classList.add("moving");
+  others.forEach(r => r.classList.add("shift"));
+  document.body.classList.add("moving-entry");
+  try { h.wrap.setPointerCapture(h.id); } catch {}
+  if (navigator.vibrate) navigator.vibrate(15);
+  autoScroll();
+}
+
+// Follows the finger (kept within the day) and slides the other entries out of the way.
+function dragTo() {
+  const m = move;
+  // It may go a little past the day's first and last entries, so the top and bottom spots are easy to reach.
+  const dy = Math.max(m.min - m.height * 0.6, Math.min(m.max + m.height * 0.6, m.y + scrollY - m.startY));
+  m.wrap.style.transform = `translateY(${dy}px)`;
+  const centre = m.top + dy + m.height / 2;
+  m.target = m.mids.filter(mid => mid < centre).length; // how many of the others end up above it
+  m.others.forEach((r, k) => {
+    const shift = k < m.idx && k >= m.target ? m.height : k >= m.idx && k < m.target ? -m.height : 0;
+    r.style.transform = shift ? `translateY(${shift}px)` : "";
+  });
+}
+// Near the top (under the header) or bottom (above the tab bar), the page scrolls while an entry is held.
+function autoScroll() {
+  if (!move) return;
+  const top = $(".top").getBoundingClientRect().bottom + 48, bottom = innerHeight - 110;
+  const speed = move.y < top ? -Math.min(14, (top - move.y) / 4) : move.y > bottom ? Math.min(14, (move.y - bottom) / 4) : 0;
+  if (speed) { scrollBy(0, speed); dragTo(); }
+  requestAnimationFrame(autoScroll);
+}
+// Stops scrolling under the finger once an entry is lifted (pan-y would otherwise take over).
+document.addEventListener("touchmove", e => { if (move) e.preventDefault(); }, { passive: false });
+$("#main").addEventListener("contextmenu", e => { if (rowOf(e.target)) e.preventDefault(); });
+
+function endMove(e) {
+  if (hold && e.pointerId === hold.id) { clearTimeout(hold.timer); hold = null; }
+  if (!move || e.pointerId !== move.id) return;
+  const m = move, t = e.type === "pointercancel" ? m.idx : m.target;
+  m.wrap.dataset.swipedAt = String(Date.now());
+  // Settle into the gap, then save and redraw in the new order.
+  const dest = t === m.idx ? 0 : t > m.idx
+    ? pageTop(m.others[t - 1]) + m.others[t - 1].offsetHeight - m.top - m.height - (parseFloat(m.others[t - 1].style.transform.slice(11)) || 0)
+    : pageTop(m.others[t]) - m.top - (parseFloat(m.others[t].style.transform.slice(11)) || 0);
+  m.wrap.classList.add("settling");
+  m.wrap.style.transform = `translateY(${dest}px)`;
+  setTimeout(() => {
+    move = null;
+    document.body.classList.remove("moving-entry");
+    [m.wrap, ...m.others].forEach(r => { r.classList.remove("moving", "shift", "settling"); r.style.transform = ""; });
+    if (t !== m.idx) placeEntry(m.wrap.querySelector(".tx-edit").dataset.id, t);
+    catchUp();
+  }, calm() ? 0 : 180);
+}
+addEventListener("pointerup", endMove);
+addEventListener("pointercancel", endMove);
+
+// Puts entry `id` at position `t` among the other entries of its day and saves it, with Undo.
+function placeEntry(id, t) {
+  const all = txAll(), me = all.find(x => x.id === id);
+  if (!me) return;
+  const others = all.filter(x => x.date === me.date && x.id !== id).sort((a, b) => posOf(a) - posOf(b));
+  const before = others[t - 1], after = others[t];
+  let changes = [[me, before && after ? (posOf(before) + posOf(after)) / 2 : before ? posOf(before) + STEP : posOf(after) - STEP]];
+  // Two neighbours too close to fit anything between them (after a great many moves): space the whole day out again.
+  if (before && after && !(changes[0][1] > posOf(before) && changes[0][1] < posOf(after))) {
+    const base = posOf(others[0]);
+    changes = [...others.slice(0, t), me, ...others.slice(t)].map((x, i) => [x, base + i * STEP]);
+  }
+  const undo = changes.map(([x]) => [x, x.order]);
+  const apply = list => {
+    list.forEach(([x, order]) => { x.order = order; }); // show it right away; the saved copy follows
+    paint();
+    if (S.demo) return;
+    Promise.all(list.map(([x, order]) => writeWithRetry(() => S.db.collection("tx").doc(x.id).update({ order }))))
+      .catch(x => { flash(writeError(x)); });
+  };
+  apply(changes);
+  flash("Moved.", 5000, () => { apply(undo); flash("Move undone.", 2500); });
+}
+
 // Delete asks once more before removing the entry: the trash turns into a ✓ to tap.
 async function deleteFromRow(btn) {
   const wrap = rowOf(btn), id = btn.dataset.id;
@@ -1399,7 +1522,7 @@ document.addEventListener("click", e => {
   const wasOpen = !!openRow && openRow.isConnected;
   if (wasOpen && !justSwiped && !(wrap === openRow && e.target.closest(".tx-actions"))) closeRow();
   if (wrap && !e.target.closest(".tx-actions")) {
-    if (!justSwiped && !wasOpen && !wrap.dataset.ro && !swipeHinted) { swipeHinted = true; flash("Swipe left on an entry to edit or delete it.", 4000); }
+    if (!justSwiped && !wasOpen && !wrap.dataset.ro && !swipeHinted) { swipeHinted = true; flash(filtering() ? "Swipe left on an entry to edit or delete it." : "Swipe left on an entry to edit or delete it, or hold it to move it.", 4000); }
     return;
   }
   const v = e.target.closest("[data-view]");
@@ -1444,6 +1567,7 @@ document.addEventListener("click", e => {
   else if (act === "scope") { S.f.scope = a.dataset.scope; draw(); }
   else if (act === "clear-filters") { S.q = ""; S.f = { type: "", cat: "", who: "", acct: "", scope: "month" }; draw(); }
   else if (act === "rem-on") turnOnReminders();
+  else if (act === "undo") { const u = S.undo; S.undo = null; if (u) u(); }
   else if (act === "reload") location.reload();
   else if (act === "refresh-phone") { a.disabled = true; a.textContent = "Refreshing…"; refreshPhone(); }
   else if (act === "bal-toggle") {
@@ -1463,10 +1587,11 @@ document.addEventListener("click", e => {
 });
 
 let noticeTimer = 0;
-function flash(msg, ms = 8000) {
-  S.notice = msg; drawChrome();
+// `undo`, when given, adds an Undo button to the message for as long as it shows.
+function flash(msg, ms = 8000, undo = null) {
+  S.notice = msg; S.undo = undo; drawChrome();
   clearTimeout(noticeTimer);
-  noticeTimer = setTimeout(() => { S.notice = ""; drawChrome(); }, ms);
+  noticeTimer = setTimeout(() => { S.notice = ""; S.undo = null; drawChrome(); }, ms);
 }
 async function invite() {
   let url;

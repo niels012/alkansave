@@ -1,6 +1,6 @@
 // Firestore with the same calls app.js makes on localDb(): collection(name), doc("config/…"),
 // onSnapshot / set / delete. Amounts are stored as whole centavos and handed to the app as pesos.
-import { collection, doc, onSnapshot, setDoc, deleteDoc } from "firebase/firestore";
+import { collection, doc, onSnapshot, setDoc, updateDoc, deleteDoc } from "firebase/firestore";
 
 const WITH_AMOUNT = new Set(["tx", "recurring"]);
 
@@ -25,6 +25,8 @@ export function firestoreDb(fs, hid) {
   const base = `households/${hid}`;
   const docRef = ref => ({
     set: d => settle(setDoc(ref, WITH_AMOUNT.has(ref.parent.id) ? toStored(d) : d)),
+    // Changes only the given fields (e.g. an entry's order); not used for amounts.
+    update: d => settle(updateDoc(ref, d)),
     delete: () => settle(deleteDoc(ref))
   });
   return {

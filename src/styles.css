@@ -143,6 +143,14 @@ main.wrap { padding-block: 12px calc(var(--nav-h) + 96px + env(safe-area-inset-b
   padding: 8px var(--pr) 8px var(--pl); text-align: left; touch-action: pan-y; user-select: none; -webkit-user-select: none; transition: transform .2s ease, border-radius .2s ease; }
 .tx-wrap.open .tx { border-radius: 0 18px 18px 0; }
 .tx-wrap.dragging .tx { transition: none; }
+/* Hold to move: the held entry lifts above the day's other entries, which slide out of its way */
+.tx { -webkit-touch-callout: none; }
+.tx-wrap.shift { transition: transform .18s ease; }
+.tx-wrap.moving { z-index: 3; border-radius: 12px; box-shadow: 0 10px 28px color-mix(in srgb, #000 24%, transparent); }
+.tx-wrap.moving .tx { background: color-mix(in srgb, var(--accent) 6%, var(--surface)); }
+.tx-wrap.settling { transition: transform .18s ease; }
+body.moving-entry, body.moving-entry * { cursor: grabbing; }
+@media (prefers-reduced-motion: reduce) { .tx-wrap.shift, .tx-wrap.settling { transition: none; } }
 /* Keyboard users: tabbing to Edit/Delete slides the entry open. */
 .tx-wrap:has(:focus-visible) .tx { transform: translateX(-120px); border-radius: 0 18px 18px 0; }
 .tx-cat { display: flex; align-items: center; gap: 5px; min-width: 0; font-size: 12px; color: var(--muted); line-height: 1.2; }
@@ -490,6 +498,7 @@ button.rec[disabled] { cursor: default; color: inherit; }
   bottom: calc(var(--nav-h) + 16px + 58px + 12px + env(safe-area-inset-bottom, 0px));
   background: var(--ink); color: var(--surface); border-radius: 12px; padding: 10px 14px; font-size: 13.5px; font-weight: 600; line-height: 1.35;
   box-shadow: 0 8px 24px color-mix(in srgb, #000 25%, transparent); overflow-wrap: anywhere; }
+.toast-undo { margin-left: 10px; border: 0; background: none; padding: 2px 4px; color: inherit; font: inherit; font-weight: 800; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 @media (prefers-reduced-motion: no-preference) {
   @keyframes toast-in { from { opacity: 0; transform: translateY(10px) scale(.97); } }
   .toast.anim-toast { animation: toast-in .25s cubic-bezier(.2, .8, .2, 1); }

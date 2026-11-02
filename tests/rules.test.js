@@ -83,6 +83,14 @@ test("editing keeps the original author and records the editor", async () => {
   await assertFails(setDoc(ref, tx("ana", { updatedAt: 1767229200000, updatedBy: "ana" })));
 });
 
+test("editors can move an entry within its day by changing only its order", async () => {
+  await assertSucceeds(updateDoc(doc(as("ben"), "households", HID, "tx", "t1"), { order: -1767225600500.5 }));
+  await assertFails(updateDoc(doc(as("cy"), "households", HID, "tx", "t1"), { order: 1 })); // view only
+  await assertFails(updateDoc(doc(as("ben"), "households", HID, "tx", "t1"), { order: "first" }));
+  // Changing anything else still counts as an edit and must be signed by the editor.
+  await assertFails(updateDoc(doc(as("ben"), "households", HID, "tx", "t1"), { order: 2, amountCents: 1 }));
+});
+
 test("editors can delete entries; viewers cannot", async () => {
   await assertFails(deleteDoc(doc(as("cy"), "households", HID, "tx", "t1")));
   await assertSucceeds(deleteDoc(doc(as("ben"), "households", HID, "tx", "t1")));

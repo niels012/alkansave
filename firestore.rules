@@ -37,8 +37,9 @@ service cloud.firestore {
     }
 
     function validTx(d) {
-      return d.keys().hasOnly(['type', 'amountCents', 'date', 'cat', 'acct', 'to', 'note', 'by', 'createdAt', 'updatedAt', 'updatedBy', 'rec'])
+      return d.keys().hasOnly(['type', 'amountCents', 'date', 'cat', 'acct', 'to', 'note', 'by', 'createdAt', 'updatedAt', 'updatedBy', 'rec', 'order'])
         && (d.get('rec', null) == null || shortStr(d.rec, 60))
+        && (d.get('order', null) == null || d.order is number)
         && d.keys().hasAll(['type', 'amountCents', 'date', 'cat', 'acct', 'by', 'createdAt'])
         && d.type in ['expense', 'income', 'transfer']
         && d.amountCents is int && d.amountCents > 0 && d.amountCents <= 100000000000
@@ -153,10 +154,12 @@ service cloud.firestore {
         allow read: if isMember(hid);
         allow create: if canWrite(hid) && validTx(request.resource.data)
           && (request.resource.data.by == me() || postedForRecurring(hid, request.resource.data));
-        allow update: if canWrite(hid) && validTx(request.resource.data)
-          && request.resource.data.by == resource.data.by
-          && request.resource.data.createdAt == resource.data.createdAt
-          && request.resource.data.updatedBy == me();
+        // An edit is signed by whoever made it; moving an entry within its day changes only its order.
+        allow update: if canWrite(hid) && validTx(request.resource.data) && (
+          (request.resource.data.by == resource.data.by
+            && request.resource.data.createdAt == resource.data.createdAt
+            && request.resource.data.updatedBy == me())
+          || changedOnly(['order']));
         allow delete: if canWrite(hid);
       }
 

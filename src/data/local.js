@@ -35,7 +35,11 @@ export function localDb() {
       return {
         doc: id => {
           const k = id || newId();
-          return { set: async d => { col[k] = d; persist(); }, delete: async () => { delete col[k]; persist(); } };
+          return {
+            set: async d => { col[k] = d; persist(); },
+            update: async d => { col[k] = { ...col[k], ...d }; persist(); },
+            delete: async () => { delete col[k]; persist(); }
+          };
         },
         onSnapshot: cb => watch(cb, () => ({ docs: Object.entries(col).map(([id, d]) => ({ id, data: () => d })), metadata: { hasPendingWrites: false } }))
       };
