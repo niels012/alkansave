@@ -53,6 +53,10 @@ button { cursor: pointer; }
 .live[data-s="live"] i, .live[data-s="local"] i { background: var(--ok); box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 25%, transparent); }
 .live[data-s="saving"] i { background: var(--warn); }
 .live[data-s="error"] i { background: var(--expense); }
+/* Your photo (or initials) beside the sync status; tapping it opens your family and account on Accounts */
+.top-right { display: flex; align-items: center; gap: 8px; flex: none; }
+.me { border: 0; background: none; padding: 0; border-radius: 50%; cursor: pointer; }
+.me .av { width: 32px; height: 32px; font-size: 12px; box-shadow: 0 0 0 2px var(--surface), 0 0 0 3px var(--line); }
 .month-row { display: flex; align-items: center; justify-content: center; gap: 6px; }
 .month-row h1 { font-family: var(--display); font-weight: 700; font-size: 22px; margin: 0; min-width: 11ch; text-align: center; letter-spacing: -0.01em; }
 .icon-btn { width: 36px; height: 36px; border-radius: 50%; border: 0; background: transparent; display: grid; place-items: center; font-size: 22px; line-height: 1; color: var(--muted); }

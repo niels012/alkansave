@@ -175,9 +175,10 @@ function who(id) {
   const isMe = !!id && id === S.meId;
   return { name: isMe ? "You" : ((p && p.name) || "Family member"), color: (p && p.color) || "#7A8882", avatar: (p && p.avatarUrl) || "", isMe };
 }
-function avatar(id, sm) {
+// `name`, when given, is used for the initials instead (e.g. your real name rather than "You").
+function avatar(id, sm, name) {
   const p = who(id);
-  const initials = esc((p.name || "?").trim().split(/\s+/).map(w => w[0]).slice(0, 2).join("").toUpperCase());
+  const initials = esc((name || p.name || "?").trim().split(/\s+/).map(w => w[0]).slice(0, 2).join("").toUpperCase());
   // The photo sits over the initials; if it fails to load (expired link, offline) it removes itself.
   return `<span class="av${sm ? " sm" : ""}" style="--c:${esc(p.color)}">${initials}${p.avatar ? `<img src="${esc(p.avatar)}" alt="" onerror="this.remove()">` : ""}</span>`;
 }
@@ -345,7 +346,12 @@ function drawChrome() {
   const live = $("#live");
   const ls = S.demo ? "preview" : S.local ? "local" : S.live;
   live.dataset.s = ls;
-  live.lastElementChild.textContent = { live: "Live · synced", saving: "Saving…", connecting: "Connecting…", error: "Sync paused", preview: "Sample data", local: "Saved on this device", offline: "Offline · saved on phone" }[ls] || "Connecting…";
+  live.lastElementChild.textContent = { live: "Live", saving: "Saving…", connecting: "Connecting…", error: "Sync paused", preview: "Sample data", local: "Saved on this device", offline: "Offline · saved on phone" }[ls] || "Connecting…";
+
+  // Your photo (initials until it loads, or if there isn't one) when signed in; redrawn only when it changes.
+  const me = $("#me"), mine = S.user && S.meId && !S.demo ? S.profiles[S.meId] || {} : null;
+  const meHtml = mine ? avatar(S.meId, false, mine.name || S.user.email) : "";
+  if (me.dataset.html !== meHtml) { me.dataset.html = meHtml; me.innerHTML = meHtml; me.hidden = !meHtml; }
 
   // Short messages (entry added, deleted, hints) pop up near the bottom so they're seen wherever you've scrolled.
   const toastKey = S.notice + (S.undo ? "\u0000undo" : "");
@@ -1567,6 +1573,16 @@ document.addEventListener("click", e => {
   else if (act === "scope") { S.f.scope = a.dataset.scope; draw(); }
   else if (act === "clear-filters") { S.q = ""; S.f = { type: "", cat: "", who: "", acct: "", scope: "month" }; draw(); }
   else if (act === "rem-on") turnOnReminders();
+  else if (act === "me") {
+    // Your photo opens Accounts with the Family card (members, invite, sign out) unfolded.
+    if (S.view !== "accounts") animate("view");
+    S.view = "accounts"; S.armed = "";
+    try { localStorage.setItem("alkansave.view", S.view); } catch {}
+    setFoldOpen("family", true);
+    draw();
+    const fam = document.querySelector('.fold-body[data-fold="family"]');
+    if (fam) fam.closest(".card").scrollIntoView({ behavior: calm() ? "auto" : "smooth", block: "center" });
+  }
   else if (act === "undo") { const u = S.undo; S.undo = null; if (u) u(); }
   else if (act === "reload") location.reload();
   else if (act === "refresh-phone") { a.disabled = true; a.textContent = "Refreshing…"; refreshPhone(); }
