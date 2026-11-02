@@ -4,9 +4,12 @@
 const CATEGORY = {
   food: "Food", groceries: "Groceries", transport: "Transport", bills: "Bills & Utilities", household: "Household",
   kids: "Kids & School", health: "Health", shopping: "Shopping", leisure: "Leisure", padala: "Padala & Family",
-  pet: "Pet", other: "Other"
+  tithing: "Tithing", pet: "Pet", other: "Other"
 };
-const ACCOUNT = { cash: "Cash", gcash: "GCash", maya: "Maya", bank: "Bank", card: "Credit card" };
+const ACCOUNT = {
+  cash: "Cash", gcash: "GCash", gotyme: "GoTyme", maribank: "MariBank", psbank: "PSBank", card: "Credit card",
+  maya: "Maya", bank: "Bank"
+};
 
 const pesoFmt = new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP", minimumFractionDigits: 0, maximumFractionDigits: 2 });
 const peso = cents => pesoFmt.format(cents / 100);

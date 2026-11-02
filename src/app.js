@@ -6,6 +6,7 @@ import { hideSplash } from "./splash.js";
 // ---------- Reference data ----------
 const CATS = {
   expense: [
+    { k: "tithing", n: "Tithing", e: "🙏", c: "#6366F1" },
     { k: "food", n: "Food", e: "🍜", c: "#FF5A36" },
     { k: "groceries", n: "Groceries", e: "🛒", c: "#22C55E" },
     { k: "transport", n: "Transport", e: "🚌", c: "#3B82F6" },
@@ -28,13 +29,14 @@ const CATS = {
   ]
 };
 const TRANSFER = { k: "transfer", n: "Transfer", e: "🔁", c: "#7A8882" };
-// Cash and the credit card are shared by the whole family (one of each). GCash, GoTyme and MariBank are
+// Cash and the credit card are shared by the whole family (one of each). GCash, GoTyme, MariBank and PSBank are
 // personal: every family member has their own, and an entry uses the account of whoever logged it.
 const ACCOUNTS = [
   { k: "cash", n: "Cash", e: "💵", c: "#4C9A66", shared: true },
   { k: "gcash", n: "GCash", logo: "/icons/banks/gcash.webp" },
   { k: "gotyme", n: "GoTyme", logo: "/icons/banks/gotyme.webp" },
   { k: "maribank", n: "MariBank", logo: "/icons/banks/maribank.webp" },
+  { k: "psbank", n: "PSBank", logo: "/icons/banks/psbank.webp", ownerOnly: true },
   { k: "card", n: "Credit card", logo: "/icons/banks/card.webp", shared: true }
 ];
 const SHARED_ACCOUNTS = ACCOUNTS.filter(a => a.shared);
@@ -46,6 +48,9 @@ const OLD_ACCOUNTS = [
   { k: "bank", n: "Bank", e: "🏦", c: "#8C69BD" }
 ];
 const ALL_ACCOUNTS = [...ACCOUNTS, ...OLD_ACCOUNTS];
+// Deel is in US dollars: it's only shown (its own row under Net on Accounts) and never added to the peso totals.
+// Nobody logs entries in it; its balance is typed in under Starting balances.
+const DEEL = { k: "deel", n: "Deel", logo: "/icons/banks/deel.webp", ownerOnly: true };
 const catOf = (type, k) => type === "transfer" ? TRANSFER : (CATS[type] || CATS.expense).find(c => c.k === k) || (type === "income" ? CATS.income.find(c => c.k === "other_in") : CATS.expense.find(c => c.k === "other"));
 const acctOf = k => ALL_ACCOUNTS.find(a => a.k === k) || ACCOUNTS[0];
 const acctIcon = a => a.logo
@@ -59,6 +64,9 @@ const pad = n => String(n).padStart(2, "0");
 const todayISO = () => { const d = new Date(); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
 const fmt = new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP", minimumFractionDigits: 0, maximumFractionDigits: 2 });
 const peso = n => fmt.format(Math.round((n || 0) * 100) / 100);
+// Dollars: whole amounts as "$2,500", anything with cents as "$2,500.50".
+const usdFmt = d => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: d, maximumFractionDigits: d });
+const usd = n => { const v = Math.round((n || 0) * 100) / 100; return usdFmt(v % 1 ? 2 : 0).format(v); };
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const shiftMonth = (m, d) => { const [y, mo] = m.split("-").map(Number); const t = new Date(y, mo - 1 + d, 1); return `${t.getFullYear()}-${pad(t.getMonth() + 1)}`; };
 const monthLabel = m => { const [y, mo] = m.split("-").map(Number); return new Date(y, mo - 1, 1).toLocaleDateString("en-PH", { month: "long", year: "numeric" }); };
@@ -113,7 +121,7 @@ function cleanLimits(l) {
 }
 function cleanStarts(s) {
   const out = {};
-  if (s && typeof s === "object") for (const a of ALL_ACCOUNTS) { const v = Number(s[a.k]); if (v && Math.abs(v) < 1e10) out[a.k] = v; }
+  if (s && typeof s === "object") for (const a of [...ALL_ACCOUNTS, DEEL]) { const v = Number(s[a.k]); if (v && Math.abs(v) < 1e10) out[a.k] = v; }
   return out;
 }
 function cleanRec(id, d) {
@@ -178,6 +186,7 @@ function buildDemo() {
     [2, "expense", "groceries", 3860, "card", "b", "Weekly groceries"],
     [2, "expense", "transport", 180, "cash", "a", "Jeep & tricycle"],
     [3, "expense", "food", 265, "gcash", "b", "Merienda with the kids"],
+    [3, "expense", "tithing", 3200, "maribank", "a", "Tithe, Sunday service"],
     [4, "expense", "kids", 1450, "gcash", "b", "School project materials"],
     [5, "expense", "bills", 3120, "gcash", "a", "Electric bill"],
     [6, "expense", "groceries", 940, "cash", "b", "Palengke run"],
@@ -209,7 +218,7 @@ function buildDemo() {
     id: "demo" + i, type: r[1], amount: r[3], date: `${m}-${pad(day(r[0]))}`, cat: r[1] === "transfer" ? "transfer" : r[2],
     acct: r[4], to: r[7] || null, note: r[6], by: "demo-" + r[5], createdAt: Date.now() - (last - day(r[0])) * 86400000 - i * 600000, updatedAt: 0, updatedBy: null
   }));
-  S.demoBudgets = { food: 4000, groceries: 9000, transport: 3000, bills: 21000, household: 2000, kids: 3500, health: 1500, shopping: 2500, leisure: 2000, padala: 3000, pet: 1200 };
+  S.demoBudgets = { food: 4000, groceries: 9000, transport: 3000, bills: 21000, household: 2000, kids: 3500, health: 1500, shopping: 2500, leisure: 2000, padala: 3000, tithing: 6400, pet: 1200 };
 }
 
 // ---------- Rendering ----------
@@ -239,7 +248,7 @@ function paint() { draw(); refreshProfiles(); }
 // Animations play only for things the person just did (switching tabs, opening a card), never for
 // redraws caused by live updates, so the screen doesn't flicker when the family logs something.
 const calm = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
-const animNext = new Set(); // what the next draw() should animate: "view", "prev", "next", "filters", "starts", "search"
+const animNext = new Set(); // what the next draw() should animate: "view", "prev", "next", "filters", "fold:<card>", "search"
 function animate(...what) { if (!calm()) what.forEach(w => animNext.add(w)); }
 function replay(el, cls) {
   if (!el) return;
@@ -272,7 +281,7 @@ function playAnims(main) {
   if (animNext.has("prev")) replay(main, "anim-prev");
   if (animNext.has("next")) replay(main, "anim-next");
   if (animNext.has("filters")) growOpen(main.querySelector(".filters"));
-  if (animNext.has("starts")) growOpen(main.querySelector(".fold-body"));
+  for (const w of animNext) if (w.startsWith("fold:")) growOpen(main.querySelector(`.fold-body[data-fold="${w.slice(5)}"]`));
   if (animNext.has("search")) replay(main.querySelector(".search"), "anim-grow");
   if (animNext.has("statcat")) growOpen(main.querySelector(".cat-tx"));
   animNext.clear();
@@ -617,7 +626,7 @@ function recurringSection() {
     ${rows ? `<p class="meta">Each is added automatically on its day. ${S.canWrite ? "Tap one to change its amount or day, or to stop it." : ""}</p>` : ""}</section>`;
 }
 
-// ---------- Accounts: each family member's own Cash, GCash, GoTyme, MariBank and credit card ----------
+// ---------- Accounts: each family member's own Cash, GCash, GoTyme, MariBank, PSBank and credit card ----------
 // People whose accounts are shown: everyone in the book (you first), plus anyone who logged entries before leaving.
 function accountOwners() {
   if (S.demo) return ["demo-a", "demo-b"];
@@ -657,6 +666,15 @@ function sharedBalances() {
   const st = sharedStarts();
   return SHARED_ACCOUNTS.map(a => ({ ...a, b: (st[a.k] || 0) + flow(txAll(), a.k) }));
 }
+// PSBank and Deel belong only to the book's owner: everyone else gets "—" in that row, and doesn't see them
+// when setting starting balances or logging entries. Without sign-in, the one person on this phone has them all.
+function hasAccount(owner, a) {
+  if (!a.ownerOnly) return true;
+  if (S.demo) return owner === "demo-a";
+  if (!S.user) return true;
+  const m = S.user.members().find(x => x.id === owner);
+  return !!m && m.role === "owner";
+}
 // A person's balance in one of their own accounts: their starting amount plus the entries they logged.
 function personalBalance(owner, k) {
   return (startsOf(owner)[k] || 0) + flow(txAll().filter(t => t.by === owner), k);
@@ -683,9 +701,12 @@ function viewAccounts() {
   const liab = values.filter(b => b < 0).reduce((s, b) => s + b, 0);
   const ownerNets = owners.map((_, i) => grid.reduce((s, r) => s + r.cells[i], 0));
   const name = a => `<th scope="row"><span class="acct-name">${acctIcon(a)}<span>${esc(a.n)}</span></span></th>`;
-  // Rows in the order of the account list: Cash, GCash, GoTyme, MariBank, (old accounts), Credit card.
+  // Rows in the order of the account list: Cash, GCash, GoTyme, MariBank, PSBank, (old accounts), Credit card.
   // Shared accounts have one family amount, shown in Total.
-  const personalRow = r => `<tr>${name(r.a)}${r.cells.map(b => `<td class="pc">${money(b)}</td>`).join("")}<td class="tot">${money(r.cells.reduce((s, b) => s + b, 0))}</td></tr>`;
+  // "—" for someone who doesn't have the account (PSBank and Deel are only the owner's), unless money somehow shows up there.
+  const NONE = `<span class="num none">—</span>`;
+  const cell = (o, a, b, show) => `<td class="pc">${hasAccount(o, a) || b ? show(b) : NONE}</td>`;
+  const personalRow = r => `<tr>${name(r.a)}${r.cells.map((b, i) => cell(owners[i], r.a, b, money)).join("")}<td class="tot">${money(r.cells.reduce((s, b) => s + b, 0))}</td></tr>`;
   const sharedRow = r => `<tr>${name(r)}<td colspan="${owners.length}" class="shared-cell">shared</td><td class="tot">${money(r.b)}</td></tr>`;
   const sharedOf = k => shared.find(r => r.k === k);
   const tableRows = [
@@ -694,28 +715,38 @@ function viewAccounts() {
     sharedRow(sharedOf("card"))
   ].join("");
 
+  // Each person's Deel balance in dollars, below Net and outside every total above.
+  const deel = owners.map(o => startsOf(o).deel || 0);
+  const deelRow = `<tr class="usd">${name(DEEL)}${deel.map((b, i) => cell(owners[i], DEEL, b, v => `<span class="num">${usd(v)}</span>`)).join("")}<td class="tot"><span class="num">${usd(deel.reduce((s, b) => s + b, 0))}</span></td></tr>`;
+
   const table = `<div class="bal-wrap"><table class="bal-table">
     <thead><tr><th scope="col"><span class="sr-only">Account</span></th>${owners.map(o => `<th scope="col" class="pc"><span class="who-col">${avatar(o)}<span>${esc(firstName(o))}</span></span></th>`).join("")}<th scope="col">Total</th></tr></thead>
     <tbody>${tableRows}</tbody>
-    <tfoot><tr><th scope="row">Net</th>${ownerNets.map(b => `<td class="pc">${money(b)}</td>`).join("")}<td class="tot">${money(assets + liab)}</td></tr></tfoot>
-  </table></div>`;
+    <tfoot><tr><th scope="row">Net</th>${ownerNets.map(b => `<td class="pc">${money(b)}</td>`).join("")}<td class="tot">${money(assets + liab)}</td></tr>
+      ${deelRow}</tfoot>
+  </table></div>
+  <p class="meta">Deel is in US dollars and isn't included in the totals.</p>`;
 
   return `<section class="card"><div class="acct-sum"><div><span>Assets</span><b class="num inc">${peso(assets)}</b></div><div><span>Owed</span><b class="num exp">${peso(-liab)}</b></div><div><span>Net</span><b class="num">${peso(assets + liab)}</b></div></div></section>
     <section class="card"><span class="label">Balances</span>${table}</section>`
     + startSection() + familySection() + exportSection() + installSection();
 }
 
+// Cards on Accounts that fold down to just their heading (Starting balances, Family). They start folded;
+// opening or closing one is remembered on this phone.
+const FOLDS = { starts: "alkansave.showStarts", family: "alkansave.showFamily" };
+const foldOpen = k => { try { return localStorage.getItem(FOLDS[k]) === "1"; } catch { return false; } };
+const setFoldOpen = (k, on) => { try { localStorage.setItem(FOLDS[k], on ? "1" : "0"); } catch {} };
+// The whole heading is the toggle; the arrow points down when folded and up when open.
+const foldHead = (k, label) => `<button type="button" class="card-head fold" data-act="fold" data-fold="${k}" aria-expanded="${foldOpen(k)}"><span class="label">${label}</span>
+    <svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>`;
+
 // What each account held before the family started logging. Anyone who can edit sets the shared Cash and
-// card; everyone sets their own GCash, GoTyme and MariBank. The card is entered as the amount owed.
-// The card folds down to just its heading; the on/off switch is remembered on this phone.
-const startsShown = () => { try { return localStorage.getItem("alkansave.showStarts") === "1"; } catch { return false; } };
+// card; everyone sets their own GCash, GoTyme, MariBank and PSBank. The card is entered as the amount owed.
 function startSection() {
   if (S.demo) return "";
-  const on = startsShown();
-  // The whole heading is the toggle; the arrow points down when folded and up when open.
-  const head = `<button type="button" class="card-head fold" data-act="starts-toggle" aria-expanded="${on}"><span class="label">Starting balances</span>
-    <svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>`;
-  if (!on) return `<section class="card">${head}</section>`;
+  const head = foldHead("starts", "Starting balances");
+  if (!foldOpen("starts")) return `<section class="card">${head}</section>`;
   const row = (a, st, editable, attr) => {
     const owed = a.k === "card";
     const v = st[a.k] ? (owed ? -st[a.k] : st[a.k]) : 0;
@@ -729,9 +760,10 @@ function startSection() {
   // Only your own personal accounts here; everyone else sets (and sees) theirs on their own phone.
   const me = S.meId || "local";
   const mine = `<div class="acct-owner">${avatar(me)}<span class="nm">Your accounts</span></div>`
-    + PERSONAL_ACCOUNTS.map(a => row(a, startsOf(me), true, "data-start")).join("");
-  return `<section class="card">${head}<div class="fold-body">
-    <p class="meta">What was already in each account before you started logging. The shared Cash and card are for the whole family; your GCash, GoTyme and MariBank are just yours.</p>${shared}${mine}</div></section>`;
+    + PERSONAL_ACCOUNTS.filter(a => hasAccount(me, a)).map(a => row(a, startsOf(me), true, "data-start")).join("")
+    + (!hasAccount(me, DEEL) ? "" : `<div class="acct">${acctIcon(DEEL)}<div><div class="nm">Deel</div><div class="sub">Your balance now, in US dollars</div></div><label class="limit"><span>$</span><input data-start="deel" inputmode="decimal" value="${startsOf(me).deel || ""}" placeholder="0" aria-label="Deel balance in US dollars"></label></div>`);
+  return `<section class="card">${head}<div class="fold-body" data-fold="starts">
+    <p class="meta">What was already in each account before you started logging. The shared Cash and card are for the whole family; your GCash, GoTyme, MariBank and PSBank are just yours.</p>${shared}${mine}</div></section>`;
 }
 
 function exportSection() {
@@ -812,18 +844,21 @@ function familySection() {
     return `<div class="member${manage ? " manage" : ""}">${avatar(m.id)}<span class="nm">${esc(who(m.id).name)}</span>${role}</div>`;
   }).join("");
   const leaveArmed = S.armed === "leave";
-  return `<section class="card"><span class="label">Family · ${esc(S.user.household().name)}</span>${rows}
+  const head = foldHead("family", `Family · ${esc(S.user.household().name)}`);
+  if (!foldOpen("family")) return `<section class="card">${head}</section>`;
+  return `<section class="card">${head}<div class="fold-body" data-fold="family">${rows}
     ${S.isOwner ? `<div><button class="btn primary" type="button" data-act="invite">Invite family</button></div>`
       : `<p class="meta">Editors can add and change entries. View only members can look but not change anything.</p>`}
     <div class="bar-row"><span class="meta">Signed in as ${esc(S.user.email)}</span><span class="banner-actions">
       ${S.isOwner ? "" : `<button class="btn danger${leaveArmed ? " armed" : ""}" type="button" data-act="leave">${leaveArmed ? "Tap to leave" : "Leave book"}</button>`}
-      <button class="btn" type="button" data-act="signout">Sign out</button></span></div></section>`;
+      <button class="btn" type="button" data-act="signout">Sign out</button></span></div></div></section>`;
 }
 
 // ---------- Entry sheet ----------
 const sheet = $("#sheet");
 function fillAccounts() {
-  const opts = ACCOUNTS.map(a => `<option value="${a.k}">${esc(a.n)}</option>`).join("");
+  const me = S.demo ? "demo-a" : S.meId || "local";
+  const opts = ACCOUNTS.filter(a => hasAccount(me, a)).map(a => `<option value="${a.k}">${esc(a.n)}</option>`).join("");
   $("#f-acct").innerHTML = opts; $("#f-to").innerHTML = opts;
   $("#f-day").innerHTML = Array.from({ length: 31 }, (_, i) => `<option value="${i + 1}">${recWhen(i + 1)}</option>`).join("");
 }
@@ -1316,12 +1351,12 @@ document.addEventListener("click", e => {
   else if (act === "scope") { S.f.scope = a.dataset.scope; draw(); }
   else if (act === "clear-filters") { S.q = ""; S.f = { type: "", cat: "", who: "", acct: "", scope: "month" }; draw(); }
   else if (act === "rem-on") turnOnReminders();
-  else if (act === "starts-toggle") {
-    const setShown = on => { try { localStorage.setItem("alkansave.showStarts", on ? "1" : "0"); } catch {} };
-    if (startsShown()) {
+  else if (act === "fold") {
+    const k = a.dataset.fold;
+    if (foldOpen(k)) {
       a.setAttribute("aria-expanded", "false"); // turn the arrow while the card folds
-      foldShut(document.querySelector(".fold-body"), () => { setShown(false); draw(); });
-    } else { setShown(true); animate("starts"); draw(); }
+      foldShut(document.querySelector(`.fold-body[data-fold="${k}"]`), () => { setFoldOpen(k, false); draw(); });
+    } else { setFoldOpen(k, true); animate("fold:" + k); draw(); }
   }
   else if (act === "rem-off") turnOffReminders();
 });
