@@ -54,6 +54,17 @@ curl -H "Authorization: Bearer $CRON_SECRET" "https://<your-domain>/api/reminder
 
 `npm test` checks which bills are due when and the reminder wording (`api/_due.js`).
 
+## Logging from other apps
+
+`api/log.js` lets another app add one expense, e.g. the meal planner's **Done Market** button (note "Carbon Market", Food, Cash). It's logged as the person with `LOG_AS_EMAIL`, in the family book they last opened, and only if they can edit it. Each request carries an id, so a retry never adds the same entry twice.
+
+Setup (once), in Vercel → Settings → Environment Variables, as secrets:
+
+- `LOG_SECRET`: any long random string; the other app sends it as `Authorization: Bearer …`
+- `LOG_AS_EMAIL`: the email you sign in to AlkanSave with
+
+It uses the same `FIREBASE_SERVICE_ACCOUNT` as bill reminders.
+
 ## Security rules
 
 ```sh
