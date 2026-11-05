@@ -92,7 +92,17 @@
       <button type="button" class="cat-toggle" id="catToggle" data-act="cat-toggle" aria-expanded="false" aria-controls="f-cats"></button>
       <div class="cats" id="f-cats" hidden></div>
     </div>
-    <label class="field"><span>Note</span><input id="f-note" maxlength="120" placeholder="e.g. Palengke run, Meralco bill"></label>
+    <div class="field" id="noteWrap"><label for="f-note">Note</label>
+      <div class="note-row">
+        <input id="f-note" maxlength="120" placeholder="e.g. Palengke run, Meralco bill">
+        <button type="button" class="attach" id="f-attach" data-act="attach" aria-label="Attach a photo or take a picture">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11.5l-7.8 7.8a5 5 0 0 1-7.1-7.1l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8"/></svg>
+        </button>
+      </div>
+      <input type="file" id="f-file" accept="image/*" multiple hidden>
+      <div class="photos" id="f-photos" hidden></div>
+    </div>
+    <label class="field" id="descWrap" hidden><span>Description</span><input id="f-desc" maxlength="200" placeholder="e.g. Official receipt, warranty until Dec 2027"></label>
     <label class="check" id="repeatWrap" hidden><input type="checkbox" id="f-repeat"> Repeat every month</label>
     <label class="field" id="repWhenWrap" hidden><span>Repeats on</span><select id="f-rep"></select></label>
     <p class="meta" id="f-meta" hidden></p>

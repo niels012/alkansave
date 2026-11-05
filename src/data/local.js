@@ -36,6 +36,8 @@ export function localDb() {
         doc: id => {
           const k = id || newId();
           return {
+            id: k,
+            get: async () => ({ exists: !!col[k], data: () => col[k] }),
             set: async d => { col[k] = d; persist(); },
             update: async d => { col[k] = { ...col[k], ...d }; persist(); },
             delete: async () => { delete col[k]; persist(); }

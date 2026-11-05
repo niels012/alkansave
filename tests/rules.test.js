@@ -250,6 +250,35 @@ test("members can set their own starting balances, but not someone else's or the
   await assertFails(updateDoc(doc(as("eve"), "households", HID, "members", "eve"), { start }));
 });
 
+// ---------- Receipt photos ----------
+test("editors can attach up to 3 photos to an entry; viewers and outsiders cannot", async () => {
+  const photos = (who, images) => setDoc(doc(as(who), "households", HID, "photos", "e1"), { images, updatedAt: 1, updatedBy: who });
+  const jpg = "data:image/jpeg;base64,AAAA";
+  await assertSucceeds(photos("ben", [jpg]));
+  await assertSucceeds(photos("ben", [jpg, jpg, jpg]));
+  await assertFails(photos("ben", [jpg, jpg, jpg, jpg]));
+  await assertFails(photos("ben", []));
+  await assertFails(setDoc(doc(as("ben"), "households", HID, "photos", "e1"), { images: [jpg], updatedAt: 1, updatedBy: "ana" }));
+  await assertFails(photos("cy", [jpg])); // viewer
+  await assertFails(photos("eve", [jpg])); // not in the family
+  await assertSucceeds(getDoc(doc(as("cy"), "households", HID, "photos", "e1")));
+  await assertFails(getDoc(doc(as("eve"), "households", HID, "photos", "e1")));
+  await assertSucceeds(deleteDoc(doc(as("ben"), "households", HID, "photos", "e1")));
+  // Photo-shaped documents aren't allowed anywhere else.
+  await assertFails(setDoc(doc(as("ben"), "households", HID, "config", "e1"), { images: [jpg], updatedAt: 1, updatedBy: "ben" }));
+});
+
+test("an entry with photos can have a short description", async () => {
+  await assertSucceeds(setDoc(doc(as("ben"), "households", HID, "tx", "d1"), tx("ben", { photos: 1, desc: "Official receipt" })));
+  await assertFails(setDoc(doc(as("ben"), "households", HID, "tx", "d2"), tx("ben", { photos: 1, desc: "x".repeat(201) })));
+});
+
+test("an entry can say how many photos it has (0 to 3)", async () => {
+  await assertSucceeds(setDoc(doc(as("ben"), "households", HID, "tx", "p1"), tx("ben", { photos: 2 })));
+  await assertFails(setDoc(doc(as("ben"), "households", HID, "tx", "p2"), tx("ben", { photos: 4 })));
+  await assertFails(setDoc(doc(as("ben"), "households", HID, "tx", "p3"), tx("ben", { photos: "2" })));
+});
+
 test("members can change or clear one account's starting balance at a time", async () => {
   const me = doc(as("cy"), "households", HID, "members", "cy");
   await assertSucceeds(updateDoc(me, { start: { gcash: 1200 } }));

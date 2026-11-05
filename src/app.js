@@ -95,7 +95,7 @@ const S = {
   month: todayISO().slice(0, 7), view: "daily", statType: "expense", selDay: todayISO(),
   db: null, user: null, meId: null, isOwner: false, canWrite: true,
   tx: [], budgets: {}, loaded: false, live: "connecting", profiles: {},
-  demo: false, demoTx: [], demoBudgets: {}, local: false,
+  demo: false, demoTx: [], demoBudgets: {}, demoPhotos: {}, local: false,
   editing: null, delArmed: false, notice: "", canSignIn: false,
   recurring: [], recLoaded: false, legacyStart: {}, legacyStartBy: null, sharedStart: null, armed: "",
   editingRec: null, q: "", searchOpen: false, showFilters: false, f: { type: "", cat: "", who: "", acct: "", scope: "month" },
@@ -106,6 +106,7 @@ try { const h = location.hash.slice(1); if (VIEWS.includes(h)) S.view = h; } cat
 addEventListener("hashchange", () => { const h = location.hash.slice(1); if (VIEWS.includes(h) && h !== S.view) { S.view = h; draw(); } });
 try { const v = localStorage.getItem("alkansave.view"); if (!location.hash && VIEWS.includes(v)) S.view = v; } catch {}
 
+const MAX_PHOTOS = 3; // receipt photos per entry (see "Receipt photos")
 // An entry deleted from its row stays hidden here until its Undo runs out (see deleteWithUndo).
 const hiddenTx = new Set();
 const txAll = () => { const list = S.demo ? S.demoTx : S.tx; return hiddenTx.size ? list.filter(t => !hiddenTx.has(t.id)) : list; };
@@ -124,7 +125,9 @@ function clean(id, d) {
     by: typeof d.by === "string" ? d.by : null,
     createdAt: Number(d.createdAt) || 0, updatedAt: Number(d.updatedAt) || 0,
     updatedBy: typeof d.updatedBy === "string" ? d.updatedBy : null,
-    order: Number.isFinite(d.order) ? d.order : null
+    order: Number.isFinite(d.order) ? d.order : null,
+    photos: Number.isInteger(d.photos) && d.photos > 0 ? Math.min(d.photos, MAX_PHOTOS) : 0,
+    desc: String(d.desc || "").slice(0, 200) // describes its photos
   };
 }
 // Position within its day: smaller first. Entries nobody has moved sort newest-logged first; a moved one
@@ -425,6 +428,8 @@ function familyCard() {
 const EDIT_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M14 6l4 4"/></svg>`;
 const TRASH_ICON = `<svg class="bin" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>`;
 const CHECK_ICON = `<svg class="ok" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>`;
+// After an entry's name in the list when it has photos attached (they show when it's opened).
+const CLIP_ICON = `<svg class="tx-clip" viewBox="0 0 24 24" role="img" aria-label="Has a photo"><path d="M20 11.5l-7.8 7.8a5 5 0 0 1-7.1-7.1l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8"/></svg>`;
 function txRow(t) {
   const c = catOf(t.type, t.cat);
   const acct = t.type === "transfer" ? `${acctOf(t.acct).n} → ${acctOf(t.to).n}` : acctOf(t.acct).n;
@@ -438,7 +443,7 @@ function txRow(t) {
     </div>`}
     <div class="tx">
       <span class="tx-cat"><span class="e" aria-hidden="true">${c.e}</span><span class="n">${esc(c.n)}</span></span>
-      <span class="tx-main"><span class="tx-title">${esc(t.note || c.n)}</span><span class="tx-sub">${esc(acct)} · ${esc(who(t.by).name)}</span></span>
+      <span class="tx-main"><span class="tx-title"><span class="tx-t">${esc(t.note || c.n)}</span>${t.photos ? CLIP_ICON : ""}</span><span class="tx-sub">${esc(acct)} · ${esc(who(t.by).name)}</span></span>
       <span class="num tx-amt ${cls}">${peso(t.amount)}</span>
     </div>
   </div>`;
@@ -1027,6 +1032,7 @@ function openSheet(t) {
   const meta = $("#f-meta");
   if (t) { meta.hidden = false; meta.textContent = `Logged by ${who(t.by).name}${t.createdAt ? " · " + ago(t.createdAt) : ""}${t.updatedAt && t.updatedBy ? ` · last edited by ${who(t.updatedBy).name}` : ""}`; }
   else meta.hidden = true;
+  loadPhotos(t);
   showSheet();
   // New entry: put the cursor in the amount right away, still inside the tap, so iPhones show the
   // number keyboard too (they ignore focus that happens after a delay). Editing doesn't pop it up.
@@ -1054,6 +1060,7 @@ function openRecSheet(r) {
   const meta = $("#f-meta");
   meta.hidden = false;
   meta.textContent = `Set up by ${who(r.createdBy).name} · next added ${recNext(r)}. Changes apply from then on; entries already added stay as they are.`;
+  loadPhotos(null); // recurring items have no photos (renderPhotos hides the paperclip)
   showSheet();
 }
 // The form blooms out from the bottom centre when shown (CSS on .scrim) and shrinks back into it here.
@@ -1065,6 +1072,7 @@ function showSheet() {
 function closeSheet() {
   const scrim = $("#scrim");
   S.editing = null; S.editingRec = null;
+  photoForm.token++; // drops photos still loading or shrinking for this form
   if (scrim.hidden) return;
   const done = () => { if (scrim.classList.contains("closing")) { scrim.classList.remove("closing"); scrim.hidden = true; } };
   if (matchMedia("(prefers-reduced-motion: reduce)").matches) { scrim.hidden = true; }
@@ -1074,6 +1082,128 @@ function closeSheet() {
     setTimeout(done, 300); // in case the animation doesn't run
   }
   $("#fab").focus({ preventScroll: true });
+}
+
+// ---------- Receipt photos ----------
+// The paperclip beside Note attaches up to MAX_PHOTOS photos to an entry: picked from the phone's photos or taken
+// with the camera (the phone offers both for one file box). Adding one shows a Description box for it.
+// Each photo is shrunk to a JPEG under PHOTO_MAX characters and saved in photos/{entry id}, apart from the entry
+// so opening the book doesn't download them; they're fetched when the entry is opened. The entry keeps only how
+// many it has ("photos"), which puts a paperclip after its name in the list, and the description ("desc").
+// Sample data keeps them in memory.
+// "This phone only" mode has no room for photos (browser storage holds about 5 MB), so it has no paperclip.
+const PHOTO_MAX = 290000;
+const PHOTO_SIZES = [[1280, 0.72], [1024, 0.62], [800, 0.55], [640, 0.5]];
+const photoForm = { list: [], had: 0, changed: false, loading: false, failed: false, token: 0 };
+const photosAllowed = () => S.demo || !!S.user;
+
+// Shrinks the picture at `src` (a file's object URL or a data URL) to a JPEG data URL that fits `limit`.
+async function shrinkImage(src, sizes, limit) {
+  const img = await new Promise((ok, bad) => { const i = new Image(); i.onload = () => ok(i); i.onerror = bad; i.src = src; });
+  const canvas = document.createElement("canvas");
+  for (const [max, q] of sizes) {
+    const k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+    canvas.width = Math.max(1, Math.round(img.naturalWidth * k)); canvas.height = Math.max(1, Math.round(img.naturalHeight * k));
+    const g = canvas.getContext("2d");
+    g.fillStyle = "#fff"; g.fillRect(0, 0, canvas.width, canvas.height); // PNGs with see-through parts
+    g.drawImage(img, 0, 0, canvas.width, canvas.height);
+    const out = canvas.toDataURL("image/jpeg", q);
+    if (out.length <= limit) return out;
+  }
+  return null;
+}
+async function shrinkPhoto(file) {
+  const url = URL.createObjectURL(file);
+  try { return await shrinkImage(url, PHOTO_SIZES, PHOTO_MAX); } finally { URL.revokeObjectURL(url); }
+}
+
+function renderPhotos() {
+  const box = $("#f-photos"), f = photoForm;
+  $("#f-attach").hidden = !photosAllowed() || sheet.dataset.mode === "rec" || f.loading || f.failed;
+  const thumbs = f.list.map((src, i) => `<div class="ph"><button type="button" class="ph-open" data-act="photo-view" data-i="${i}" aria-label="Open photo ${i + 1}"><img src="${src}" alt=""></button>`
+    + `<button type="button" class="ph-x" data-act="photo-remove" data-i="${i}" aria-label="Remove photo ${i + 1}">×</button></div>`).join("");
+  const note = f.loading ? `<p class="meta">Loading photos…</p>` : f.failed ? `<p class="meta">Couldn't load this entry's photos. Check your connection and open it again.</p>` : "";
+  box.innerHTML = thumbs + note;
+  box.hidden = !thumbs && !note;
+  // The Description box is only there while the entry has a photo (or its photos are still on their way).
+  $("#descWrap").hidden = !(f.list.length || (!f.changed && f.had));
+}
+
+// Opening an entry: show its photos (fetched only now). Until they're in, the paperclip waits, and saving
+// leaves the photos as they were.
+async function loadPhotos(t) {
+  const f = photoForm, token = ++f.token;
+  Object.assign(f, { list: [], had: t && photosAllowed() ? t.photos : 0, changed: false, loading: false, failed: false });
+  $("#f-desc").value = t && t.photos ? t.desc : "";
+  if (f.had) {
+    if (S.demo) f.list = [...(S.demoPhotos[t.id] || [])];
+    else {
+      f.loading = true;
+      renderPhotos();
+      try {
+        const snap = await S.db.collection("photos").doc(t.id).get();
+        if (token !== f.token) return; // another entry was opened meanwhile
+        f.list = snap.exists && Array.isArray(snap.data().images) ? snap.data().images.slice(0, MAX_PHOTOS) : [];
+      } catch { if (token !== f.token) return; f.failed = true; }
+      f.loading = false;
+    }
+  }
+  renderPhotos();
+}
+
+async function addPhotos(files) {
+  const f = photoForm, err = $("#f-err");
+  err.textContent = "";
+  const room = MAX_PHOTOS - f.list.length;
+  if (files.length > room) err.textContent = room ? `An entry can have up to ${MAX_PHOTOS} photos, so only ${room === 1 ? "one was" : `the first ${room} were`} added.` : `An entry can have up to ${MAX_PHOTOS} photos. Remove one to add another.`;
+  const token = f.token;
+  for (const file of files.slice(0, room)) {
+    let src = null;
+    try { src = await shrinkPhoto(file); } catch {}
+    if (token !== f.token) return; // the form was closed or another entry opened
+    if (!src) { err.textContent = "That photo couldn't be added. Try a different one."; continue; }
+    f.list.push(src); f.changed = true;
+    renderPhotos();
+  }
+}
+
+// A photo full screen; tap anywhere (or Escape) to close. `full` may still be loading: the small copy shows first.
+function viewPhoto(src, full) {
+  const v = document.createElement("button");
+  v.type = "button"; v.className = "viewer"; v.setAttribute("aria-label", "Close photo");
+  v.innerHTML = `<img src="${src}" alt="Receipt photo">`;
+  v.addEventListener("click", () => v.remove());
+  document.body.append(v);
+  v.focus();
+  if (full) full.then(big => { if (big && v.isConnected) v.querySelector("img").src = big; }).catch(() => {});
+}
+$("#f-file").addEventListener("change", e => {
+  const files = [...e.target.files].filter(x => x.type.startsWith("image/") || !x.type);
+  e.target.value = ""; // so picking the same photo again still counts
+  if (files.length) addPhotos(files);
+});
+// Escape closes an open photo first (and not the form behind it).
+addEventListener("keydown", e => {
+  const v = document.querySelector(".viewer");
+  if (e.key === "Escape" && v) { v.remove(); e.stopImmediatePropagation(); }
+}, true);
+
+// For saving an entry (id `id`): store, replace or remove its photos, only if they were changed. Called before
+// the entry itself is written, so the photos reach other phones before the entry that points to them.
+function savePhotos(id, hadPhotos) {
+  const f = photoForm;
+  if (!f.changed) return Promise.resolve();
+  const list = [...f.list];
+  if (S.demo) { if (list.length) S.demoPhotos[id] = list; else delete S.demoPhotos[id]; return Promise.resolve(); }
+  const ref = S.db.collection("photos").doc(id);
+  if (list.length) return writeWithRetry(() => ref.set({ images: list, updatedAt: Date.now(), updatedBy: S.meId }));
+  return hadPhotos ? writeWithRetry(() => ref.delete()) : Promise.resolve();
+}
+// An entry being deleted takes its photos with it.
+function deletePhotos(t) {
+  if (!t || !t.photos) return;
+  if (S.demo) { delete S.demoPhotos[t.id]; return; }
+  writeWithRetry(() => S.db.collection("photos").doc(t.id).delete()).catch(() => {});
 }
 
 async function saveRecurringEdit(type, amount, catEl) {
@@ -1128,6 +1258,11 @@ sheet.addEventListener("submit", async e => {
     updatedAt: prev ? Date.now() : 0, updatedBy: prev ? me : null,
     ...(prev && prev.order != null && prev.date === date ? { order: prev.order } : {}) // keeps its place unless its day changes
   };
+  // How many receipt photos it has; unchanged (or still loading) photos keep the count it had.
+  const photos = photoForm.changed ? photoForm.list.length : prev ? prev.photos : 0;
+  if (photos) data.photos = photos;
+  const desc = photos ? $("#f-desc").value.trim().slice(0, 200) : ""; // a description only goes with photos
+  if (desc) data.desc = desc;
   if (data.date.slice(0, 7) !== S.month) S.month = data.date.slice(0, 7);
   if (S.view === "calendar") S.selDay = data.date;
   // Confirmation banner, e.g. "✓ ₱145 expense added · Groceries · Cash".
@@ -1136,7 +1271,8 @@ sheet.addEventListener("submit", async e => {
   const saved = prev ? "✓ Entry updated"
     : `✓ ${peso(data.amount)} ${type} added · ${where}${repeats ? ` · repeats on the ${repeatLabel(chosenPattern())}` : ""}`;
   if (S.demo) {
-    const row = { id: prev ? prev.id : "demo" + Date.now(), ...data };
+    const row = { id: prev ? prev.id : "demo" + Date.now(), photos: 0, desc: "", ...data };
+    savePhotos(row.id, false);
     S.demoTx = prev ? S.demoTx.map(t => t.id === prev.id ? row : t) : [...S.demoTx, row];
     closeSheet(); paint(); flash(saved, 3500); return;
   }
@@ -1153,7 +1289,9 @@ sheet.addEventListener("submit", async e => {
       ref = S.db.collection("tx").doc(`r_${rid}_${month}`);
       data.rec = rid;
     }
-    await writeWithRetry(() => ref.set(data));
+    // The photos go out just before the entry; Firestore keeps both on the phone until they reach the server.
+    const photoWrite = savePhotos(ref.id, !!(prev && prev.photos));
+    await Promise.all([photoWrite, writeWithRetry(() => ref.set(data))]);
     closeSheet();
     flash(saved, 3500);
   } catch (x) { err.textContent = writeError(x); }
@@ -1184,8 +1322,9 @@ async function deleteEntry() {
   }
   const id = S.editing; if (!id) return;
   if (!S.delArmed) { S.delArmed = true; const b = $("#f-del"); b.classList.add("armed"); b.textContent = "Tap again to delete"; return; }
-  if (S.demo) { S.demoTx = S.demoTx.filter(t => t.id !== id); closeSheet(); paint(); return; }
-  try { await writeWithRetry(() => S.db.collection("tx").doc(id).delete()); closeSheet(); }
+  const t = txAll().find(x => x.id === id);
+  if (S.demo) { S.demoTx = S.demoTx.filter(t => t.id !== id); deletePhotos(t); closeSheet(); paint(); return; }
+  try { await writeWithRetry(() => S.db.collection("tx").doc(id).delete()); deletePhotos(t); closeSheet(); }
   catch (x) { $("#f-err").textContent = writeError(x); }
 }
 
@@ -1562,8 +1701,9 @@ async function finishDelete() {
   if (!p) return;
   pendingDelete = null;
   clearTimeout(p.timer);
-  if (S.demo) { S.demoTx = S.demoTx.filter(t => t.id !== p.id); hiddenTx.delete(p.id); return; }
-  try { await writeWithRetry(() => S.db.collection("tx").doc(p.id).delete()); }
+  const t = (S.demo ? S.demoTx : S.tx).find(x => x.id === p.id);
+  if (S.demo) { S.demoTx = S.demoTx.filter(t => t.id !== p.id); hiddenTx.delete(p.id); deletePhotos(t); return; }
+  try { await writeWithRetry(() => S.db.collection("tx").doc(p.id).delete()); deletePhotos(t); }
   catch (x) { flash(writeError(x)); }
   hiddenTx.delete(p.id); // gone from the list by now, or back if the delete was refused
   paint();
@@ -1595,6 +1735,9 @@ document.addEventListener("click", e => {
   else if (act === "edit") { closeRow(); const t = txAll().find(x => x.id === a.dataset.id); if (t) openSheet(t); }
   else if (act === "tx-del") deleteFromRow(a);
   else if (act === "close") closeSheet();
+  else if (act === "attach") $("#f-file").click(); // still inside the tap, so the phone opens its photo picker
+  else if (act === "photo-remove") { photoForm.list.splice(Number(a.dataset.i), 1); photoForm.changed = true; renderPhotos(); }
+  else if (act === "photo-view") viewPhoto(photoForm.list[Number(a.dataset.i)]);
   else if (act === "cat-toggle") showCats($("#f-cats").hidden);
   else if (act === "del") deleteEntry();
   else if (act === "day") { S.selDay = a.dataset.date; draw(); }

@@ -8,6 +8,7 @@ rules_version = '2';
 //   households/{hid}/config/shared   starting balances of the shared Cash and credit card
 //   households/{hid}/config/accounts older shared list of starting balances
 //   households/{hid}/recurring/{id}  bills/income added automatically each month
+//   households/{hid}/photos/{txId}   an entry's receipt photos (1–3 shrunk JPEGs); the entry's "photos" is how many
 //   households/{hid}/members/{uid}/devices/{id}  phones that get bill reminders
 //   invites/{code}               join links an owner creates; valid until expiresAt
 //   users/{uid}                  which household a person last opened (private to them)
@@ -37,9 +38,11 @@ service cloud.firestore {
     }
 
     function validTx(d) {
-      return d.keys().hasOnly(['type', 'amountCents', 'date', 'cat', 'acct', 'to', 'note', 'by', 'createdAt', 'updatedAt', 'updatedBy', 'rec', 'order'])
+      return d.keys().hasOnly(['type', 'amountCents', 'date', 'cat', 'acct', 'to', 'note', 'by', 'createdAt', 'updatedAt', 'updatedBy', 'rec', 'order', 'photos', 'desc'])
         && (d.get('rec', null) == null || shortStr(d.rec, 60))
         && (d.get('order', null) == null || d.order is number)
+        && (d.get('photos', 0) is int && d.get('photos', 0) >= 0 && d.get('photos', 0) <= 3)
+        && shortStr(d.get('desc', ''), 200)
         && d.keys().hasAll(['type', 'amountCents', 'date', 'cat', 'acct', 'by', 'createdAt'])
         && d.type in ['expense', 'income', 'transfer']
         && d.amountCents is int && d.amountCents > 0 && d.amountCents <= 100000000000
@@ -160,6 +163,19 @@ service cloud.firestore {
             && request.resource.data.createdAt == resource.data.createdAt
             && request.resource.data.updatedBy == me())
           || changedOnly(['order']));
+        allow delete: if canWrite(hid);
+      }
+
+      // Receipt photos, one document per entry (same id). Each photo is a JPEG data URL the app shrinks to
+      // under 300 KB, so three fit in Firestore's 1 MB per document.
+      match /photos/{id} {
+        allow read: if isMember(hid);
+        allow create, update: if canWrite(hid)
+          && request.resource.data.keys().hasOnly(['images', 'updatedAt', 'updatedBy'])
+          && request.resource.data.images is list
+          && request.resource.data.images.size() >= 1 && request.resource.data.images.size() <= 3
+          && request.resource.data.updatedAt is int
+          && request.resource.data.updatedBy == me();
         allow delete: if canWrite(hid);
       }
 

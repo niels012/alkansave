@@ -165,7 +165,9 @@ body.moving-entry, body.moving-entry * { cursor: grabbing; }
 .tx-cat .e { font-size: 15px; flex: none; }
 .tx-cat .n { overflow-wrap: anywhere; }
 .tx-main { display: grid; min-width: 0; gap: 0; }
-.tx-title { font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tx-title { font-weight: 600; font-size: 14px; display: flex; align-items: center; gap: 5px; min-width: 0; }
+.tx-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.tx-clip { width: 14px; height: 14px; flex: none; fill: none; stroke: var(--muted); stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
 .tx-sub { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tx-amt { font-weight: 600; font-size: 13px; text-align: right; }
 .ico { width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center; font-size: 18px; background: color-mix(in srgb, var(--c, var(--muted)) 20%, var(--surface)); }
@@ -267,6 +269,23 @@ body.moving-entry, body.moving-entry * { cursor: grabbing; }
 .field { display: grid; gap: 6px; min-width: 0; }
 .field > span { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.07em; }
 .field input, .field select { width: 100%; min-width: 0; border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 9px 10px; }
+.field > label { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.07em; }
+/* Note with the paperclip button beside it; receipt photos as thumbnails underneath. */
+.note-row { display: flex; gap: 8px; align-items: stretch; }
+.note-row input { flex: 1; }
+.attach { flex: none; width: 42px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--muted); display: grid; place-items: center; padding: 0; }
+.attach:hover, .attach:focus-visible { background: var(--sunk); color: var(--ink); }
+.attach[hidden] { display: none; }
+.attach svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.photos { display: flex; flex-wrap: wrap; gap: 8px; }
+.photos .meta { margin: 0; font-size: 12.5px; }
+.photos .ph { position: relative; width: 64px; height: 64px; flex: none; } /* not .cat-toggle .ph, the category placeholder */
+.ph-open { width: 100%; height: 100%; padding: 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--sunk); display: block; }
+.ph-open img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ph-x { position: absolute; top: -7px; right: -7px; width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--surface); background: var(--ink); color: var(--surface); font-size: 15px; line-height: 1; padding: 0; display: grid; place-items: center; }
+/* A photo opened full screen; tap anywhere to close. */
+.viewer { position: fixed; inset: 0; z-index: 30; background: color-mix(in srgb, #000 88%, transparent); display: grid; place-items: center; padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom)); border: 0; width: 100%; }
+.viewer img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 6px; }
 /* Date pickers have a wide built-in minimum width; minmax(0, 1fr) lets them shrink to half the row. */
 .row2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
 /* iPhone: Safari's date field ignores width unless its native look is turned off. */
