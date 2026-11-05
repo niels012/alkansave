@@ -437,7 +437,7 @@ function txRow(t) {
   const cls = t.type === "income" ? "inc" : t.type === "expense" ? "exp" : "";
   const ro = !(S.demo || S.canWrite);
   const id = esc(t.id);
-  return `<div class="tx-wrap"${ro ? ` data-ro="1"` : ""}>
+  return `<div class="tx-wrap${glowAttrs(t.id)}"${ro ? ` data-ro="1"` : ""}>
     ${ro ? "" : `<div class="tx-actions">
       <button type="button" class="tx-edit" data-act="edit" data-id="${id}" aria-label="Edit">${EDIT_ICON}</button>
       <button type="button" class="tx-del" data-act="tx-del" data-id="${id}" aria-label="Delete">${TRASH_ICON}${CHECK_ICON}</button>
@@ -1287,7 +1287,7 @@ sheet.addEventListener("submit", async e => {
     const row = { id: prev ? prev.id : "demo" + Date.now(), photos: 0, desc: "", ...data };
     savePhotos(row.id, false);
     S.demoTx = prev ? S.demoTx.map(t => t.id === prev.id ? row : t) : [...S.demoTx, row];
-    closeSheet(); paint(); showLoader("").done(done); return;
+    closeSheet(); paint(); showLoader("").done({ ...done, after: () => showEntry(row.id) }); return;
   }
   // The form closes right away and a full-screen "Saving your entry…" shows until the save is through.
   // Firestore puts the entry on this phone the moment it's written, then sends it on, which can take seconds
@@ -1311,7 +1311,7 @@ sheet.addEventListener("submit", async e => {
   const uploading = photoForm.changed && photoForm.list.length;
   closeSheet();
   const loader = showLoader("Saving your entry…", uploading ? `Uploading ${uploading} photo${uploading === 1 ? "" : "s"}` : "");
-  Promise.all(writes).then(() => loader.done(done)).catch(x => {
+  Promise.all(writes).then(() => loader.done({ ...done, after: () => showEntry(ref.id) })).catch(x => {
     // Refused (e.g. no longer allowed to edit): the entry drops out of the list again. The form still holds
     // what was typed, so "Try again" brings it back as it was.
     loader.hide();
@@ -1319,6 +1319,26 @@ sheet.addEventListener("submit", async e => {
     flash(msg, 12000, () => { S.editing = editing; showSheet(); $("#f-err").textContent = msg; }, { label: "Try again" });
   });
 });
+
+// After saving: scroll the list to that entry and light it up for a moment, so it's easy to spot.
+// Only when it's on screen (the Daily list or the calendar's day, not another tab).
+// The glow carries on through list redraws (txRow picks it up from `glow` partway through).
+const GLOW_MS = 2200;
+let glow = null; // { id, at }
+function showEntry(id) {
+  const btn = [...document.querySelectorAll("#main .tx-edit")].find(b => b.dataset.id === id);
+  const wrap = btn && btn.closest(".tx-wrap");
+  if (!wrap) return;
+  wrap.scrollIntoView({ block: "center", behavior: calm() ? "auto" : "smooth" });
+  glow = { id, at: Date.now() };
+  wrap.classList.remove("just-saved");
+  void wrap.offsetWidth; // restart the glow if it's still going
+  wrap.classList.add("just-saved");
+}
+const glowAttrs = id => {
+  const left = glow && glow.id === id ? GLOW_MS - (Date.now() - glow.at) : 0;
+  return left > 0 ? ` just-saved" style="--glow-delay:${left - GLOW_MS}ms` : "";
+};
 
 // Full-screen "busy" card over the app, e.g. "Saving your entry…". Returns { done(info), hide() }.
 // done() turns the spinner into a green check with what was saved (info: title, amount, cls, sub), which
@@ -1332,16 +1352,19 @@ function showLoader(title, sub = "") {
   el.setAttribute("role", "status");
   el.innerHTML = `<div class="loader-card"><div class="loader-ring" aria-hidden="true"></div><b>${esc(title)}</b>${sub ? `<span>${esc(sub)}</span>` : ""}</div>`;
   const show = setTimeout(() => document.body.append(el), LOADER_DELAY_MS);
-  let gone = false, timedOut = false;
+  let gone = false, timedOut = false, after = null;
   const hide = () => {
     if (gone) return;
     gone = true; clearTimeout(show); clearTimeout(slow);
     if (el.isConnected) { el.classList.add("closing"); setTimeout(() => el.remove(), 160); }
+    if (after) after();
   };
   const slow = setTimeout(() => { timedOut = true; hide(); flash("Saving…", 120000, null, { busy: true }); }, LOADER_MAX_MS);
+  // info.after runs once the check card is gone (e.g. scroll to the saved entry).
   const done = info => {
-    if (timedOut) { flash(info.text, 3500); return; }
+    if (timedOut) { flash(info.text, 3500); if (info.after) info.after(); return; }
     if (gone) return;
+    after = info.after || null;
     clearTimeout(show); clearTimeout(slow);
     el.classList.add("done");
     el.innerHTML = `<div class="loader-card"><div class="loader-check" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>`
