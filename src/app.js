@@ -1,6 +1,6 @@
 import { connect } from "./data/index.js";
 import { leaveDeviceOnly } from "./prefs.js";
-import { isIOS, isStandalone } from "./device.js";
+import { isIOS, isAndroid, isStandalone } from "./device.js";
 import { hideSplash } from "./splash.js";
 import { dueDate, patternsFor, repeatLabel, byWeekday, WEEKS, WEEKDAYS } from "./schedule.js";
 
@@ -1119,7 +1119,8 @@ async function shrinkPhoto(file) {
 
 function renderPhotos() {
   const box = $("#f-photos"), f = photoForm;
-  $("#f-attach").hidden = !photosAllowed() || sheet.dataset.mode === "rec" || f.loading || f.failed;
+  $("#attachMenu").hidden = true;
+  $("#f-attach").hidden =!photosAllowed() || sheet.dataset.mode === "rec" || f.loading || f.failed;
   const thumbs = f.list.map((src, i) => `<div class="ph"><button type="button" class="ph-open" data-act="photo-view" data-i="${i}" aria-label="Open photo ${i + 1}"><img src="${src}" alt=""></button>`
     + `<button type="button" class="ph-x" data-act="photo-remove" data-i="${i}" aria-label="Remove photo ${i + 1}">×</button></div>`).join("");
   const note = f.loading ? `<p class="meta">Loading photos…</p>` : f.failed ? `<p class="meta">Couldn't load this entry's photos. Check your connection and open it again.</p>` : "";
@@ -1177,11 +1178,16 @@ function viewPhoto(src, full) {
   v.focus();
   if (full) full.then(big => { if (big && v.isConnected) v.querySelector("img").src = big; }).catch(() => {});
 }
-$("#f-file").addEventListener("change", e => {
+for (const box of [$("#f-file"), $("#f-cam")]) box.addEventListener("change", e => {
   const files = [...e.target.files].filter(x => x.type.startsWith("image/") || !x.type);
   e.target.value = ""; // so picking the same photo again still counts
   if (files.length) addPhotos(files);
 });
+// A tap anywhere but the paperclip and its menu closes the menu.
+document.addEventListener("click", e => {
+  if (!e.target.closest || e.target.closest("#attachMenu, #f-attach")) return;
+  $("#attachMenu").hidden = true;
+}, true);
 // Escape closes an open photo first (and not the form behind it).
 addEventListener("keydown", e => {
   const v = document.querySelector(".viewer");
@@ -1735,7 +1741,11 @@ document.addEventListener("click", e => {
   else if (act === "edit") { closeRow(); const t = txAll().find(x => x.id === a.dataset.id); if (t) openSheet(t); }
   else if (act === "tx-del") deleteFromRow(a);
   else if (act === "close") closeSheet();
-  else if (act === "attach") $("#f-file").click(); // still inside the tap, so the phone opens its photo picker
+  // The paperclip. Each file box opens inside the tap, so the phone allows it. Android asks camera or gallery
+  // first: Chrome there leaves the camera out of a picker that takes several photos. iPhones offer both anyway.
+  else if (act === "attach") { if (isAndroid) $("#attachMenu").hidden = !$("#attachMenu").hidden; else $("#f-file").click(); }
+  else if (act === "attach-cam") { $("#attachMenu").hidden = true; $("#f-cam").click(); }
+  else if (act === "attach-pick") { $("#attachMenu").hidden = true; $("#f-file").click(); }
   else if (act === "photo-remove") { photoForm.list.splice(Number(a.dataset.i), 1); photoForm.changed = true; renderPhotos(); }
   else if (act === "photo-view") viewPhoto(photoForm.list[Number(a.dataset.i)]);
   else if (act === "cat-toggle") showCats($("#f-cats").hidden);

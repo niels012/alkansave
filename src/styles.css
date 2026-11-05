@@ -276,6 +276,12 @@ body.moving-entry, body.moving-entry * { cursor: grabbing; }
 .attach { flex: none; width: 42px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--muted); display: grid; place-items: center; padding: 0; }
 .attach:hover, .attach:focus-visible { background: var(--sunk); color: var(--ink); }
 .attach[hidden] { display: none; }
+/* Android: the paperclip asks camera or gallery (Chrome leaves the camera out of a multi-photo picker). */
+.note-row { position: relative; }
+.attach-menu { position: absolute; right: 0; bottom: 100%; margin-bottom: 6px; /* opens upward: Note is near the form's bottom */ z-index: 2; display: grid; min-width: 200px; padding: 6px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); box-shadow: 0 8px 24px color-mix(in srgb, #000 18%, transparent); }
+.attach-menu[hidden] { display: none; }
+.attach-menu button { border: 0; background: transparent; text-align: left; padding: 11px 12px; border-radius: 8px; font-weight: 600; }
+.attach-menu button:hover, .attach-menu button:focus-visible { background: var(--sunk); }
 .attach svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .photos { display: flex; flex-wrap: wrap; gap: 8px; }
 .photos .meta { margin: 0; font-size: 12.5px; }
