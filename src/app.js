@@ -1192,7 +1192,7 @@ function saveBudget(k, raw) {
 }
 
 // ---------- Starting balances ----------
-// Starting balances save the moment you leave the box. Each save goes out right away rather than waiting for the
+// Starting balances save as you type and when you leave the box (see saveBox). Each save goes out right away rather than waiting for the
 // one before it to reach the server: Firestore shows it on this phone at once (offline too) and sends this phone's
 // saves in order. Waiting held back every amount after the first on a slow connection, and they could undo each other.
 // Saves the shared Cash / credit card starting balance (config/shared) for the whole family.
@@ -1639,12 +1639,30 @@ $("#scrim").addEventListener("click", e => { if (e.target.id === "scrim") closeS
 document.addEventListener("keydown", e => { if (e.key === "Escape" && !$("#scrim").hidden) closeSheet(); });
 $("#main").addEventListener("change", e => {
   const d = e.target.dataset || {};
-  if (d.lim) saveBudget(d.lim, e.target.value);
-  else if (d.start) saveStart(d.start, e.target.value);
-  else if (d.startShared) saveSharedStart(d.startShared, e.target.value);
-  else if (d.role) S.user.setRole(d.role, e.target.value).catch(() => { flash("Couldn't change their role. Check your connection and try again."); draw(); });
+  if (d.role) S.user.setRole(d.role, e.target.value).catch(() => { flash("Couldn't change their role. Check your connection and try again."); draw(); });
   else if (d.filter) { S.f[d.filter] = e.target.value; draw(); }
 });
+// Budget limits and starting balances save shortly after you stop typing, and again when you leave the box
+// (each save does nothing if the amount hasn't changed). They don't wait for "change": on iPhones it never comes
+// once the commas below have rewritten the box, so any amount of ₱1,000 or more was never saved.
+const SAVED_BOXES = "input[data-lim], input[data-start], input[data-start-shared]";
+let boxTimer = null;
+function saveBox(el) {
+  clearTimeout(boxTimer);
+  const d = el.dataset;
+  if (d.lim) saveBudget(d.lim, el.value);
+  else if (d.start) saveStart(d.start, el.value);
+  else if (d.startShared) saveSharedStart(d.startShared, el.value);
+}
+$("#main").addEventListener("input", e => {
+  if (!e.target.matches(SAVED_BOXES)) return;
+  clearTimeout(boxTimer);
+  const el = e.target;
+  boxTimer = setTimeout(() => saveBox(el), 800);
+});
+$("#main").addEventListener("focusout", e => { if (e.target.matches && e.target.matches(SAVED_BOXES)) saveBox(e.target); });
+// Leaving the app with the keyboard still up doesn't always count as leaving the box.
+addEventListener("pagehide", () => { const el = document.activeElement; if (el && el.matches && el.matches(SAVED_BOXES)) saveBox(el); });
 // Commas go in while typing in any amount box; the cursor stays after the same digit it was after.
 const AMOUNT_INPUTS = "#f-amount, input[data-lim], input[data-start], input[data-start-shared]";
 document.addEventListener("input", e => {
