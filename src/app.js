@@ -366,10 +366,11 @@ function drawChrome() {
   if (me.dataset.html !== meHtml) { me.dataset.html = meHtml; me.innerHTML = meHtml; me.hidden = !meHtml; }
 
   // Short messages (entry added, deleted, hints) pop up near the bottom so they're seen wherever you've scrolled.
-  const toastKey = S.notice + (S.undo ? "\u0000undo" : "");
+  const toastKey = S.notice + (S.undo ? "\u0000" + S.undoLabel : "") + (S.noticeBusy ? "\u0000busy" : "");
   if (toastKey !== lastToast) {
     lastToast = toastKey;
-    toast.innerHTML = esc(S.notice) + (S.undo ? ` <button type="button" class="toast-undo" data-act="undo">Undo</button>` : "");
+    toast.innerHTML = (S.noticeBusy ? `<span class="spin" aria-hidden="true"></span>` : "") + esc(S.notice)
+      + (S.undo ? ` <button type="button" class="toast-undo" data-act="undo">${esc(S.undoLabel || "Undo")}</button>` : "");
     toast.hidden = !S.notice;
     if (S.notice) replay(toast, "anim-toast");
   }
@@ -1276,33 +1277,81 @@ sheet.addEventListener("submit", async e => {
   const where = type === "transfer" ? `${acctOf(acct).n} → ${acctOf(to).n}` : `${catOf(type, data.cat).n} · ${acctOf(acct).n}`;
   const saved = prev ? "✓ Entry updated"
     : `✓ ${peso(data.amount)} ${type} added · ${where}${repeats ? ` · repeats on the ${repeatLabel(chosenPattern())}` : ""}`;
+  // The check card the saving card turns into, e.g. "Expense added / ₱1 / Other · Cash".
+  const done = {
+    title: prev ? "Entry updated" : `${type[0].toUpperCase()}${type.slice(1)} added`,
+    amount: peso(data.amount), cls: type === "income" ? "inc" : type === "expense" ? "exp" : "",
+    sub: where + (repeats ? ` · repeats on the ${repeatLabel(chosenPattern())}` : ""), text: saved
+  };
   if (S.demo) {
     const row = { id: prev ? prev.id : "demo" + Date.now(), photos: 0, desc: "", ...data };
     savePhotos(row.id, false);
     S.demoTx = prev ? S.demoTx.map(t => t.id === prev.id ? row : t) : [...S.demoTx, row];
-    closeSheet(); paint(); flash(saved, 3500); return;
+    closeSheet(); paint(); showLoader("").done(done); return;
   }
-  const btn = $("#f-save"); btn.disabled = true;
-  try {
-    let ref = prev ? S.db.collection("tx").doc(prev.id) : S.db.collection("tx").doc();
-    if (!prev && type !== "transfer" && $("#f-repeat").checked) {
-      // This entry is the first month; later months are added by postRecurring() under the same id scheme.
-      const rid = newId(), month = date.slice(0, 7);
-      await writeWithRetry(() => S.db.collection("recurring").doc(rid).set(recData({
-        type, amount: data.amount, cat: data.cat, acct, note: data.note, ...chosenPattern(),
-        lastPosted: month, active: true, createdBy: me, createdAt: Date.now()
-      })));
-      ref = S.db.collection("tx").doc(`r_${rid}_${month}`);
-      data.rec = rid;
-    }
-    // The photos go out just before the entry; Firestore keeps both on the phone until they reach the server.
-    const photoWrite = savePhotos(ref.id, !!(prev && prev.photos));
-    await Promise.all([photoWrite, writeWithRetry(() => ref.set(data))]);
-    closeSheet();
-    flash(saved, 3500);
-  } catch (x) { err.textContent = writeError(x); }
-  finally { btn.disabled = false; }
+  // The form closes right away and a full-screen "Saving your entry…" shows until the save is through.
+  // Firestore puts the entry on this phone the moment it's written, then sends it on, which can take seconds
+  // with photos or a slow connection (the db waits up to 4 s for the server; offline, not at all). The writes
+  // go out in order: the recurring item, the photos, then the entry that points to them.
+  const writes = [];
+  let ref = prev ? S.db.collection("tx").doc(prev.id) : S.db.collection("tx").doc();
+  if (repeats) {
+    // This entry is the first month; later months are added by postRecurring() under the same id scheme.
+    const rid = newId(), month = date.slice(0, 7);
+    writes.push(writeWithRetry(() => S.db.collection("recurring").doc(rid).set(recData({
+      type, amount: data.amount, cat: data.cat, acct, note: data.note, ...chosenPattern(),
+      lastPosted: month, active: true, createdBy: me, createdAt: Date.now()
+    }))));
+    ref = S.db.collection("tx").doc(`r_${rid}_${month}`);
+    data.rec = rid;
+  }
+  writes.push(savePhotos(ref.id, !!(prev && prev.photos)));
+  writes.push(writeWithRetry(() => ref.set(data)));
+  const editing = S.editing;
+  const uploading = photoForm.changed && photoForm.list.length;
+  closeSheet();
+  const loader = showLoader("Saving your entry…", uploading ? `Uploading ${uploading} photo${uploading === 1 ? "" : "s"}` : "");
+  Promise.all(writes).then(() => loader.done(done)).catch(x => {
+    // Refused (e.g. no longer allowed to edit): the entry drops out of the list again. The form still holds
+    // what was typed, so "Try again" brings it back as it was.
+    loader.hide();
+    const msg = writeError(x);
+    flash(msg, 12000, () => { S.editing = editing; showSheet(); $("#f-err").textContent = msg; }, { label: "Try again" });
+  });
 });
+
+// Full-screen "busy" card over the app, e.g. "Saving your entry…". Returns { done(info), hide() }.
+// done() turns the spinner into a green check with what was saved (info: title, amount, cls, sub), which
+// fades after DONE_MS or on a tap. The spinner waits LOADER_DELAY_MS before showing, so a save that's
+// through at once (offline, say) goes straight to the check. It never spins longer than LOADER_MAX_MS:
+// past that it steps aside for "Saving…" at the bottom, and the result shows there too (info.text).
+const LOADER_DELAY_MS = 150, LOADER_MAX_MS = 8000, DONE_MS = 1400;
+function showLoader(title, sub = "") {
+  const el = document.createElement("div");
+  el.className = "loader";
+  el.setAttribute("role", "status");
+  el.innerHTML = `<div class="loader-card"><div class="loader-ring" aria-hidden="true"></div><b>${esc(title)}</b>${sub ? `<span>${esc(sub)}</span>` : ""}</div>`;
+  const show = setTimeout(() => document.body.append(el), LOADER_DELAY_MS);
+  let gone = false, timedOut = false;
+  const hide = () => {
+    if (gone) return;
+    gone = true; clearTimeout(show); clearTimeout(slow);
+    if (el.isConnected) { el.classList.add("closing"); setTimeout(() => el.remove(), 160); }
+  };
+  const slow = setTimeout(() => { timedOut = true; hide(); flash("Saving…", 120000, null, { busy: true }); }, LOADER_MAX_MS);
+  const done = info => {
+    if (timedOut) { flash(info.text, 3500); return; }
+    if (gone) return;
+    clearTimeout(show); clearTimeout(slow);
+    el.classList.add("done");
+    el.innerHTML = `<div class="loader-card"><div class="loader-check" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>`
+      + `<b>${esc(info.title)}</b><strong class="num ${info.cls}">${esc(info.amount)}</strong>${info.sub ? `<span>${esc(info.sub)}</span>` : ""}</div>`;
+    if (!el.isConnected) document.body.append(el);
+    el.addEventListener("click", hide, { once: true });
+    setTimeout(hide, DONE_MS);
+  };
+  return { done, hide };
+}
 
 async function writeWithRetry(fn) {
   try { return await fn(); }
@@ -1811,11 +1860,12 @@ document.addEventListener("click", e => {
 });
 
 let noticeTimer = 0;
-// `undo`, when given, adds an Undo button to the message for as long as it shows.
-function flash(msg, ms = 8000, undo = null) {
-  S.notice = msg; S.undo = undo; drawChrome();
+// `undo`, when given, adds an Undo button to the message for as long as it shows (`label` renames it, e.g.
+// "Try again"). `busy` puts a spinner before the message, for something still going on, like "Saving…".
+function flash(msg, ms = 8000, undo = null, { label = "Undo", busy = false } = {}) {
+  S.notice = msg; S.undo = undo; S.undoLabel = label; S.noticeBusy = busy; drawChrome();
   clearTimeout(noticeTimer);
-  noticeTimer = setTimeout(() => { S.notice = ""; S.undo = null; drawChrome(); }, ms);
+  noticeTimer = setTimeout(() => { S.notice = ""; S.undo = null; S.noticeBusy = false; drawChrome(); }, ms);
 }
 async function invite() {
   let url;

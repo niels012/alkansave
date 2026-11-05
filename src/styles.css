@@ -531,6 +531,25 @@ button.rec[disabled] { cursor: default; color: inherit; }
   bottom: calc(var(--nav-h) + 16px + 58px + 12px + env(safe-area-inset-bottom, 0px));
   background: var(--ink); color: var(--surface); border-radius: 12px; padding: 10px 14px; font-size: 13.5px; font-weight: 600; line-height: 1.35;
   box-shadow: 0 8px 24px color-mix(in srgb, #000 25%, transparent); overflow-wrap: anywhere; }
+/* Full-screen "Saving your entry…" (showLoader in app.js): blocks taps until the save is through. */
+.loader { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 24px; background: color-mix(in srgb, var(--bg) 82%, transparent); -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px); animation: loader-in .15s ease; }
+.loader.closing { opacity: 0; transition: opacity .15s ease; }
+.loader-card { display: grid; justify-items: center; gap: 12px; padding: 26px 30px; border-radius: 18px; background: var(--surface); box-shadow: 0 12px 34px color-mix(in srgb, #000 18%, transparent); text-align: center; }
+.loader-card b { font-size: 16px; }
+.loader-card span { font-size: 13px; color: var(--muted); }
+.loader-ring { width: 38px; height: 38px; margin-bottom: 2px; border-radius: 50%; border: 4px solid var(--sunk); border-top-color: var(--accent); animation: spin .8s linear infinite; }
+/* …and once saved: a green check with what was saved. */
+.loader-card strong { font-family: var(--display); font-size: 24px; font-weight: 700; line-height: 1.1; }
+.loader-card strong.exp { color: var(--expense); }
+.loader-card strong.inc { color: var(--income); }
+.loader-check { width: 44px; height: 44px; border-radius: 50%; background: color-mix(in srgb, var(--income) 16%, var(--surface)); color: var(--income); display: grid; place-items: center; animation: check-pop .28s cubic-bezier(.2, .9, .3, 1.3); }
+.loader-check svg { width: 26px; height: 26px; fill: none; stroke: currentColor; stroke-width: 2.8; stroke-linecap: round; stroke-linejoin: round; }
+@keyframes check-pop { from { transform: scale(.4); opacity: 0; } }
+@keyframes loader-in { from { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .loader, .loader.closing, .loader-check { animation: none; transition: none; } .loader-ring { animation-duration: 2.4s; } }
+.toast .spin { display: inline-block; width: 14px; height: 14px; margin-right: 9px; vertical-align: -2px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .toast .spin { animation-duration: 2.4s; } }
 .toast-undo { margin-left: 10px; border: 0; background: none; padding: 2px 4px; color: inherit; font: inherit; font-weight: 800; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 @media (prefers-reduced-motion: no-preference) {
   @keyframes toast-in { from { opacity: 0; transform: translateY(10px) scale(.97); } }
