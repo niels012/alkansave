@@ -133,20 +133,20 @@ main.wrap { padding-block: 12px calc(var(--nav-h) + 96px + env(safe-area-inset-b
 /* Each entry sits on top of its Edit/Delete buttons; swiping slides it left to show them. */
 .tx-wrap { position: relative; overflow: hidden; border-top: 1px solid color-mix(in srgb, var(--line) 60%, transparent); }
 .day-h + .tx-wrap { border-top: 0; }
-/* Round Delete/Edit buttons on the page background (sizes match BTN/PAD in app.js: 42px circles, 12px apart). */
+/* Round Edit/Delete buttons on the page background (sizes match BTN/PAD in app.js: 42px circles, 12px apart). */
 .tx-actions { position: absolute; top: 0; right: 0; bottom: 0; display: flex; align-items: center; justify-content: flex-end; padding: 0 12px; background: var(--bg); }
 .tx-actions button { flex: none; width: 42px; height: 42px; border-radius: 999px; padding: 0; border: 0; color: #fff; display: grid; place-items: center;
   overflow: hidden; transition: width .2s ease, margin .2s ease, background-color .15s; }
 .tx-actions svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
-.tx-edit { background: var(--accent); color: var(--accent-ink) !important; }
-.tx-del { background: var(--expense); margin-right: 12px; }
+.tx-edit { background: var(--accent); color: var(--accent-ink) !important; margin-right: 12px; }
+.tx-del { background: var(--expense); }
 .tx-del .ok { display: none; }
 .tx-del.armed { background: color-mix(in srgb, var(--expense) 70%, #000); }
 .tx-del.armed .bin { display: none; }
 .tx-del.armed .ok { display: block; }
-/* Edit follows the finger while dragging (no lag); Delete still glides away/back at the full-swipe point. */
-.tx-wrap.dragging .tx-edit { transition: none; }
-.tx-wrap.full .tx-del { width: 0; margin-right: 0; }
+/* Delete follows the finger while dragging (no lag); Edit still glides away/back at the full-swipe point. */
+.tx-wrap.dragging .tx-del { transition: none; }
+.tx-wrap.full .tx-edit { width: 0; margin-right: 0; }
 .tx { position: relative; z-index: 1; width: 100%; background: var(--surface); display: grid; grid-template-columns: 84px minmax(0, 1fr) auto; gap: 10px; align-items: center;
   padding: 8px var(--pr) 8px var(--pl); text-align: left; touch-action: pan-y; user-select: none; -webkit-user-select: none; transition: transform .2s ease, border-radius .2s ease; }
 .tx-wrap.open .tx { border-radius: 0 18px 18px 0; }

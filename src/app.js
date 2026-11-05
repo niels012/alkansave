@@ -106,7 +106,9 @@ try { const h = location.hash.slice(1); if (VIEWS.includes(h)) S.view = h; } cat
 addEventListener("hashchange", () => { const h = location.hash.slice(1); if (VIEWS.includes(h) && h !== S.view) { S.view = h; draw(); } });
 try { const v = localStorage.getItem("alkansave.view"); if (!location.hash && VIEWS.includes(v)) S.view = v; } catch {}
 
-const txAll = () => S.demo ? S.demoTx : S.tx;
+// An entry deleted from its row stays hidden here until its Undo runs out (see deleteWithUndo).
+const hiddenTx = new Set();
+const txAll = () => { const list = S.demo ? S.demoTx : S.tx; return hiddenTx.size ? list.filter(t => !hiddenTx.has(t.id)) : list; };
 const budgets = () => S.demo ? S.demoBudgets : S.budgets;
 const monthTx = () => txAll().filter(t => t.date.slice(0, 7) === S.month);
 
@@ -418,7 +420,8 @@ function familyCard() {
 }
 
 // One entry: category on the left, note (or category) with account and person underneath, amount on the right.
-// Swiping the row left uncovers Edit and Delete behind it (see "Swipe an entry" below); view-only members can't swipe.
+// Tapping the row opens its edit form; swiping it left uncovers Edit and Delete behind it (see "Swipe an entry"
+// below). View-only members can't do either.
 const EDIT_ICON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M14 6l4 4"/></svg>`;
 const TRASH_ICON = `<svg class="bin" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>`;
 const CHECK_ICON = `<svg class="ok" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>`;
@@ -430,8 +433,8 @@ function txRow(t) {
   const id = esc(t.id);
   return `<div class="tx-wrap"${ro ? ` data-ro="1"` : ""}>
     ${ro ? "" : `<div class="tx-actions">
-      <button type="button" class="tx-del" data-act="tx-del" data-id="${id}" aria-label="Delete">${TRASH_ICON}${CHECK_ICON}</button>
       <button type="button" class="tx-edit" data-act="edit" data-id="${id}" aria-label="Edit">${EDIT_ICON}</button>
+      <button type="button" class="tx-del" data-act="tx-del" data-id="${id}" aria-label="Delete">${TRASH_ICON}${CHECK_ICON}</button>
     </div>`}
     <div class="tx">
       <span class="tx-cat"><span class="e" aria-hidden="true">${c.e}</span><span class="n">${esc(c.n)}</span></span>
@@ -1315,13 +1318,13 @@ addEventListener("scroll", () => {
 // ---------- Swipe an entry left to edit or delete ----------
 // Only sideways drags start a swipe (touch-action: pan-y leaves up/down scrolling to the browser).
 // One row is open at a time; tapping anywhere, scrolling, or swiping back closes it.
-// Dragging past the buttons stretches Edit after the finger; past FULL_SWIPE of the row's width,
-// Delete tucks away, and letting go there opens the edit form.
+// Dragging past the buttons stretches Delete (the outer one) after the finger; past FULL_SWIPE of the row's
+// width, Edit tucks away, and letting go there deletes the entry, with Undo for a few seconds.
 // Round buttons: matches .tx-actions in styles.css (42px circles, 12px around and between them).
 const BTN = 42, PAD = 12;
-const ACTIONS_W = PAD + BTN + PAD + BTN + PAD; // 120: Delete + Edit
+const ACTIONS_W = PAD + BTN + PAD + BTN + PAD; // 120: Edit + Delete
 const FULL_SWIPE = 0.6;
-let swipe = null, openRow = null, swipeHinted = false, delTimer = 0;
+let swipe = null, openRow = null, delTimer = 0;
 function swipeBusy() { return !!(swipe && swipe.sideways && swipe.wrap.isConnected) || !!(openRow && openRow.isConnected) || !!move; }
 const catchUp = () => { if (pending && !swipeBusy()) draw(); };
 const rowOf = el => el && el.closest ? el.closest(".tx-wrap") : null;
@@ -1330,27 +1333,21 @@ function setRowOffset(wrap, x, animate) {
   wrap.querySelector(".tx").style.transform = x ? `translateX(${x}px)` : "";
   wrap.classList.toggle("dragging", !animate);
   wrap.classList.toggle("open", x < 0); // rounds the entry's right edge while it's slid over
-  // The Edit circle stretches into a pill over whatever is uncovered beyond the two buttons
-  // (all of it in a full swipe, when Delete tucks away).
-  const edit = wrap.querySelector(".tx-edit");
+  // The Delete circle stretches into a pill over whatever is uncovered beyond the two buttons
+  // (all of it in a full swipe, when Edit tucks away).
+  const del = wrap.querySelector(".tx-del");
   const full = -x > wrap.offsetWidth * FULL_SWIPE;
   wrap.classList.toggle("full", full);
-  if (edit) edit.style.width = -x > ACTIONS_W ? `${full ? -x - 2 * PAD : -x - (ACTIONS_W - BTN)}px` : "";
+  if (del) del.style.width = -x > ACTIONS_W ? `${full ? -x - 2 * PAD : -x - (ACTIONS_W - BTN)}px` : "";
 }
-// Full swipe: slide the entry the rest of the way out, open its edit form, then put the row back behind it.
-function fullSwipeEdit(wrap) {
-  const id = wrap.querySelector(".tx-edit").dataset.id;
+// Full swipe: slide the entry the rest of the way out, then delete it (the list redraws without it).
+function fullSwipeDelete(wrap) {
+  const id = wrap.querySelector(".tx-del").dataset.id;
   openRow = wrap; // holds off list redraws during the slide
   setRowOffset(wrap, -wrap.offsetWidth, true);
   setTimeout(() => {
-    const t = txAll().find(x => x.id === id);
-    if (t) openSheet(t);
-    if (wrap.isConnected) {
-      setRowOffset(wrap, 0, false); // snap back while hidden behind the form
-      requestAnimationFrame(() => wrap.classList.remove("dragging"));
-    }
     openRow = null;
-    catchUp();
+    deleteWithUndo(id);
   }, 200);
 }
 function disarmDelete(wrap) {
@@ -1398,7 +1395,7 @@ function endSwipe(e) {
   if (!s.sideways) return; // a plain tap; the click handler deals with it
   s.wrap.dataset.swipedAt = String(Date.now()); // ignore the click that follows the drag
   const x = s.base + s.dx;
-  if (-x > s.wrap.offsetWidth * FULL_SWIPE) fullSwipeEdit(s.wrap);
+  if (-x > s.wrap.offsetWidth * FULL_SWIPE) fullSwipeDelete(s.wrap);
   else if (x < -actionsWidth(s.wrap) / 2) openSwipeRow(s.wrap);
   else { setRowOffset(s.wrap, 0, true); disarmDelete(s.wrap); if (openRow === s.wrap) openRow = null; setTimeout(catchUp, 220); }
 }
@@ -1417,6 +1414,7 @@ const pageTop = el => el.getBoundingClientRect().top + scrollY;
 
 $("#main").addEventListener("pointerdown", e => {
   const wrap = rowOf(e.target);
+  if (wrap) delete wrap.dataset.held;
   if (!wrap || wrap.dataset.ro || e.target.closest(".tx-actions") || move || !(S.demo || S.canWrite) || filtering()) return;
   if ((e.pointerType === "mouse" && e.button !== 0) || (openRow && openRow.isConnected)) return;
   clearTimeout(hold && hold.timer);
@@ -1431,6 +1429,7 @@ addEventListener("pointermove", e => {
 function startMove() {
   const h = hold; hold = null;
   if (!h || !h.wrap.isConnected) return;
+  h.wrap.dataset.held = "1"; // letting go after a hold doesn't open the entry (cleared by the next press)
   const day = h.wrap.closest(".day"), rows = day ? [...day.querySelectorAll(".tx-wrap")] : [];
   if (rows.length < 2) { flash("This is the only entry on its day, so there's nowhere to move it.", 3000); return; }
   swipe = null; // the hold wins over a swipe
@@ -1442,7 +1441,7 @@ function startMove() {
     max: pageTop(rows[rows.length - 1]) + rows[rows.length - 1].offsetHeight - pageTop(h.wrap) - h.wrap.offsetHeight,
     mids: others.map(r => pageTop(r) + r.offsetHeight / 2)
   };
-  h.wrap.dataset.swipedAt = String(Date.now()); // no swipe hint for the click that follows
+  h.wrap.dataset.swipedAt = String(Date.now());
   h.wrap.classList.add("moving");
   others.forEach(r => r.classList.add("shift"));
   document.body.classList.add("moving-entry");
@@ -1535,22 +1534,56 @@ async function deleteFromRow(btn) {
   }
   clearTimeout(delTimer);
   if (openRow === wrap) openRow = null;
-  if (S.demo) { S.demoTx = S.demoTx.filter(t => t.id !== id); paint(); flash("Entry deleted."); return; }
-  try { await writeWithRetry(() => S.db.collection("tx").doc(id).delete()); flash("Entry deleted."); }
-  catch (x) { flash(writeError(x)); setRowOffset(wrap, 0, true); disarmDelete(wrap); }
+  deleteWithUndo(id);
 }
+
+// Deleting from a row hides the entry at once and shows "Entry deleted" with Undo for UNDO_MS. Only when that
+// runs out (or another entry is deleted, or the app is left) is it really deleted. Undo just shows it again,
+// so it works for anyone's entry, which re-creating it wouldn't (only the person who logged an entry can add it).
+const UNDO_MS = 4000;
+let pendingDelete = null;
+function deleteWithUndo(id) {
+  finishDelete();
+  hiddenTx.add(id);
+  const timer = setTimeout(finishDelete, UNDO_MS);
+  pendingDelete = { id, timer };
+  paint();
+  flash("Entry deleted.", UNDO_MS, () => {
+    if (!pendingDelete || pendingDelete.id !== id) return;
+    clearTimeout(pendingDelete.timer);
+    pendingDelete = null;
+    hiddenTx.delete(id);
+    paint();
+    flash("Delete undone.", 2500);
+  });
+}
+async function finishDelete() {
+  const p = pendingDelete;
+  if (!p) return;
+  pendingDelete = null;
+  clearTimeout(p.timer);
+  if (S.demo) { S.demoTx = S.demoTx.filter(t => t.id !== p.id); hiddenTx.delete(p.id); return; }
+  try { await writeWithRetry(() => S.db.collection("tx").doc(p.id).delete()); }
+  catch (x) { flash(writeError(x)); }
+  hiddenTx.delete(p.id); // gone from the list by now, or back if the delete was refused
+  paint();
+}
+addEventListener("pagehide", finishDelete);
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") finishDelete(); });
 
 document.addEventListener("click", e => {
   // A tap anywhere outside the open filter panel closes it (the Filter button toggles it itself).
   // The tap still does whatever it was aimed at, e.g. opening an entry.
   if (S.showFilters && !e.target.closest(".filters") && !e.target.closest('[data-act="filters"]')) closeFilters(false);
-  // Entries: a tap on the row itself doesn't open it. It closes an open row, or explains how to swipe.
+  // Entries: a tap on the row opens its edit form. While a row is swiped open, the tap only closes it;
+  // the tap that ends a swipe or a hold does nothing. View-only members can't edit, so their taps do nothing.
   const wrap = rowOf(e.target);
-  const justSwiped = !!wrap && Date.now() - Number(wrap.dataset.swipedAt || 0) < 500;
+  const justSwiped = !!wrap && (Date.now() - Number(wrap.dataset.swipedAt || 0) < 500 || !!wrap.dataset.held);
   const wasOpen = !!openRow && openRow.isConnected;
   if (wasOpen && !justSwiped && !(wrap === openRow && e.target.closest(".tx-actions"))) closeRow();
   if (wrap && !e.target.closest(".tx-actions")) {
-    if (!justSwiped && !wasOpen && !wrap.dataset.ro && !swipeHinted) { swipeHinted = true; flash(filtering() ? "Swipe left on an entry to edit or delete it." : "Swipe left on an entry to edit or delete it, or hold it to move it.", 4000); }
+    const edit = wrap.querySelector(".tx-edit");
+    if (!justSwiped && !wasOpen && edit) { const t = txAll().find(x => x.id === edit.dataset.id); if (t) openSheet(t); }
     return;
   }
   const v = e.target.closest("[data-view]");
