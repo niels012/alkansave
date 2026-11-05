@@ -2,7 +2,7 @@
 import { test, before, after, beforeEach } from "node:test";
 import { readFileSync } from "node:fs";
 import { initializeTestEnvironment, assertSucceeds, assertFails } from "@firebase/rules-unit-testing";
-import { doc, getDoc, setDoc, updateDoc, deleteDoc, writeBatch, serverTimestamp, Timestamp } from "firebase/firestore";
+import { doc, getDoc, setDoc, updateDoc, deleteDoc, deleteField, writeBatch, serverTimestamp, Timestamp } from "firebase/firestore";
 
 let env;
 const HID = "fam1";
@@ -248,6 +248,17 @@ test("members can set their own starting balances, but not someone else's or the
   await assertFails(updateDoc(doc(as("cy"), "households", HID, "members", "cy"), { start, role: "editor" }));
   await assertFails(updateDoc(doc(as("cy"), "households", HID, "members", "cy"), { start: "lots" }));
   await assertFails(updateDoc(doc(as("eve"), "households", HID, "members", "eve"), { start }));
+});
+
+test("members can change or clear one account's starting balance at a time", async () => {
+  const me = doc(as("cy"), "households", HID, "members", "cy");
+  await assertSucceeds(updateDoc(me, { start: { gcash: 1200 } }));
+  await assertSucceeds(updateDoc(me, { "start.gotyme": 5000 }));
+  await assertSucceeds(updateDoc(me, { "start.maribank": 20000 }));
+  await assertSucceeds(updateDoc(me, { "start.gcash": deleteField() }));
+  const saved = (await getDoc(me)).data().start;
+  if (JSON.stringify(saved) !== JSON.stringify({ gotyme: 5000, maribank: 20000 })) throw new Error("unexpected start: " + JSON.stringify(saved));
+  await assertFails(updateDoc(doc(as("ben"), "households", HID, "members", "cy"), { "start.gotyme": 1 }));
 });
 
 test("editors can set the shared Cash and card starting balances; viewers cannot", async () => {

@@ -1192,7 +1192,9 @@ function saveBudget(k, raw) {
 }
 
 // ---------- Starting balances ----------
-let startQueue = Promise.resolve();
+// Starting balances save the moment you leave the box. Each save goes out right away rather than waiting for the
+// one before it to reach the server: Firestore shows it on this phone at once (offline too) and sends this phone's
+// saves in order. Waiting held back every amount after the first on a slow connection, and they could undo each other.
 // Saves the shared Cash / credit card starting balance (config/shared) for the whole family.
 function saveSharedStart(k, raw) {
   const v = parseAmount(raw) * (k === "card" ? -1 : 1);
@@ -1200,19 +1202,24 @@ function saveSharedStart(k, raw) {
   if ((start[k] || 0) === v) return;
   if (v) start[k] = v; else delete start[k];
   S.sharedStart = start;
-  startQueue = startQueue.then(() => writeWithRetry(() => S.db.doc("config/shared").set({ start, updatedAt: Date.now(), updatedBy: S.meId })))
+  writeWithRetry(() => S.db.doc("config/shared").set({ start, updatedAt: Date.now(), updatedBy: S.meId }))
     .catch(x => { flash(writeError(x)); draw(); });
 }
 // Saves your own starting balances: on your member record in a family book, or in this browser otherwise.
+// In a family book only the changed account is written. The first save of someone whose amounts are still kept
+// the old shared way writes them all, which moves them over to their member record.
 function saveStart(k, raw) {
   const v = parseAmount(raw) * (k === "card" ? -1 : 1);
-  const start = { ...startsOf(S.meId) }; // includes amounts saved the old shared way, which move over now
+  const start = { ...startsOf(S.meId) };
   if ((start[k] || 0) === v) return;
   if (v) start[k] = v; else delete start[k];
-  const write = S.user
-    ? () => S.user.setStart(start)
-    : () => { S.legacyStart = start; return S.db.doc("config/accounts").set({ start, updatedAt: Date.now(), updatedBy: S.meId }); };
-  startQueue = startQueue.then(() => writeWithRetry(write)).catch(x => { flash(writeError(x)); draw(); });
+  const mine = S.user && S.user.members().find(m => m.id === S.meId);
+  const write = !S.user
+    ? () => { S.legacyStart = start; return S.db.doc("config/accounts").set({ start, updatedAt: Date.now(), updatedBy: S.meId }); }
+    : mine && mine.start && typeof mine.start === "object"
+      ? () => S.user.setStartAmount(k, v)
+      : () => S.user.setStart(start);
+  writeWithRetry(write).catch(x => { flash(writeError(x)); draw(); });
 }
 
 // ---------- Recurring ----------

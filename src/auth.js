@@ -5,7 +5,7 @@ import {
   isSignInWithEmailLink, sendSignInLinkToEmail, signInWithEmailLink, signOut
 } from "firebase/auth";
 import {
-  doc, getDoc, setDoc, updateDoc, deleteDoc, writeBatch, collection, onSnapshot, serverTimestamp, Timestamp
+  doc, getDoc, setDoc, updateDoc, deleteDoc, deleteField, writeBatch, collection, onSnapshot, serverTimestamp, Timestamp
 } from "firebase/firestore";
 import { firebase } from "./firebase.js";
 import { firestoreDb, toStored } from "./data/firestore.js";
@@ -282,6 +282,8 @@ function openSession(auth, fs, u, hid) {
     setRole: (uid, role) => updateDoc(doc(fs, "households", hid, "members", uid), { role }),
     // Your own starting balance per account, e.g. { cash: 2500, gcash: 1200, card: -3000 }.
     setStart: start => updateDoc(doc(fs, "households", hid, "members", u.uid), { start }),
+    // Just one account's starting balance (0 removes it); your other accounts' amounts are left as they are.
+    setStartAmount: (k, v) => updateDoc(doc(fs, "households", hid, "members", u.uid), { [`start.${k}`]: v || deleteField() }),
     removeMember: uid => deleteDoc(doc(fs, "households", hid, "members", uid)),
     async leave() {
       await stopReminders();
