@@ -341,7 +341,7 @@ function drawChrome() {
   const exp = mt.filter(t => t.type === "expense").reduce((a, t) => a + t.amount, 0);
   $("#sum").innerHTML = `<div><span>Income</span><b class="num inc">${peso(inc)}</b></div><div><span>Expenses</span><b class="num exp">${peso(exp)}</b></div>
     <button type="button" class="sum-bal" data-act="bal-toggle" aria-expanded="${S.balOpen}" aria-controls="balBreak"><span>Balance<svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></span><b class="num">${peso(inc - exp)}</b></button>
-    ${S.balOpen ? balanceBreakdown(mt) : ""}`;
+    ${S.balOpen ? balanceBreakdown() : ""}`;
 
   const live = $("#live");
   const ls = S.demo ? "preview" : S.local ? "local" : S.live;
@@ -376,13 +376,21 @@ function drawChrome() {
   $("#fab").hidden = !(S.demo || S.canWrite);
 }
 
-// Under Balance: what this month's entries left in each account (the whole family's together), without
-// starting balances. The credit card isn't money on hand, so it isn't listed; neither are accounts where nothing changed.
-function balanceBreakdown(mt) {
-  const rows = ALL_ACCOUNTS.filter(a => a.k !== "card").map(a => ({ a, b: Math.round(flow(mt, a.k) * 100) / 100 })).filter(r => r.b);
-  const list = rows.map(r => `<div class="bb"><span class="nm">${acctIcon(r.a)}${esc(r.a.n)}</span><b class="num ${r.b < 0 ? "exp" : "inc"}">${peso(r.b)}</b></div>`).join("");
-  return `<div class="bal-break" id="balBreak">${list || `<p class="meta">No money moved in any account in ${esc(monthLabel(S.month))}.</p>`}
-    <p class="meta">This month's entries only · starting balances not included</p></div>`;
+// Under Balance: what the logged entries add up to in each account (starting balances not included), for the
+// person on this phone: the shared Cash (everyone's entries), then only their own GCash, GoTyme, MariBank and
+// PSBank (their own entries). Everyone else's accounts aren't shown, and neither is any account at ₱0.
+// The credit card is money owed, not on hand, so it isn't listed.
+function balanceBreakdown() {
+  const me = S.demo ? "demo-a" : S.meId || "local";
+  const r2 = b => Math.round(b * 100) / 100;
+  const cash = r2(flow(txAll(), "cash"));
+  const myTx = txAll().filter(t => t.by === me);
+  const mine = [...PERSONAL_ACCOUNTS.filter(a => hasAccount(me, a)), ...OLD_ACCOUNTS]
+    .map(a => ({ a, b: r2(flow(myTx, a.k)) }))
+    .filter(r => r.b);
+  const row = (a, b, tag) => `<div class="bb"><span class="nm">${acctIcon(a)}<span class="bb-n">${esc(a.n)}${tag ? `<span class="bb-tag">${tag}</span>` : ""}</span></span><b class="num ${b < 0 ? "exp" : "inc"}">${peso(b)}</b></div>`;
+  const list = (cash ? row(acctOf("cash"), cash, "shared") : "") + mine.map(r => row(r.a, r.b)).join("");
+  return `<div class="bal-break" id="balBreak">${list || `<p class="meta">Nothing in Cash or your accounts yet.</p>`}</div>`;
 }
 
 function familyCard() {
