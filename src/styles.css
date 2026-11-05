@@ -29,6 +29,8 @@ img { max-width: 100%; }
 
 * { box-sizing: border-box; }
 html, body { background: var(--bg); }
+/* No double-tap zoom (taps also stop waiting to see if a second tap follows). Pinch zoom is off too: see index.html and app.js. */
+html { touch-action: manipulation; }
 body { color: var(--ink); font-family: var(--body); font-size: 15px; line-height: 1.45; -webkit-font-smoothing: antialiased; }
 body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--surface); }
 button, input, select { font: inherit; color: inherit; }

@@ -4,6 +4,13 @@ import { isIOS, isStandalone } from "./device.js";
 import { hideSplash } from "./splash.js";
 import { dueDate, patternsFor, repeatLabel, byWeekday, WEEKS, WEEKDAYS } from "./schedule.js";
 
+// ---------- No zooming ----------
+// The app is laid out for phone screens, so it doesn't zoom. index.html's viewport turns zoom off and stops the
+// iPhone zooming in on a tapped box, and styles.css stops double-tap zoom, but Safari on iPhone ignores the
+// viewport's no-zoom setting for pinching, so pinches (two fingers) are cancelled here.
+for (const type of ["gesturestart", "gesturechange", "gestureend"]) document.addEventListener(type, e => e.preventDefault(), { passive: false });
+document.addEventListener("touchmove", e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
+
 // ---------- Reference data ----------
 const CATS = {
   expense: [
