@@ -33,20 +33,27 @@ const CATS = {
     { k: "business", n: "Business", e: "🏪", c: "#22C55E" },
     { k: "bonus", n: "13th Month & Bonus", e: "🎁", c: "#A855F7" },
     { k: "gift", n: "Gifts", e: "🧧", c: "#FF4D6D" },
+    { k: "interest", n: "Interest", e: "📈", c: "#14B8A6" }, // e.g. MariBank's daily interest (see "Bank interest")
     { k: "other_in", n: "Other income", e: "➕", c: "#94A3B8" }
   ]
 };
 const TRANSFER = { k: "transfer", n: "Transfer", e: "🔁", c: "#7A8882" };
-// Cash and the credit card are shared by the whole family (one of each). GCash, GoTyme, MariBank and PSBank are
+// Cash and Atome are shared by the whole family (one of each). GCash, GoTyme, MariBank and PSBank are
 // personal: every family member has their own, and an entry uses the account of whoever logged it.
+// Atome and SPayLater are pay-later accounts that work like credit cards ("owed"): spending on them is money owed,
+// not money on hand, their starting balance is entered as the amount owed, and paying them is a transfer in.
+// Atome keeps the key "card" (it was "Credit card"), so entries and starting amounts already saved still count.
 const ACCOUNTS = [
   { k: "cash", n: "Cash", e: "💵", c: "#4C9A66", shared: true },
   { k: "gcash", n: "GCash", logo: "/icons/banks/gcash.webp" },
   { k: "gotyme", n: "GoTyme", logo: "/icons/banks/gotyme.webp" },
   { k: "maribank", n: "MariBank", logo: "/icons/banks/maribank.webp" },
   { k: "psbank", n: "PSBank", logo: "/icons/banks/psbank.webp", ownerOnly: true },
-  { k: "card", n: "Credit card", logo: "/icons/banks/card.webp", shared: true }
+  { k: "spaylater", n: "SPayLater", logo: "/icons/banks/spaylater.webp", ownerOnly: true, owed: true },
+  { k: "card", n: "Atome", logo: "/icons/banks/card.webp", shared: true, owed: true }
 ];
+const isOwed = k => !!(ACCOUNTS.find(a => a.k === k) || {}).owed;
+const INTEREST_ACCOUNT = "maribank"; // the account whose balance you can tap to log its interest
 const SHARED_ACCOUNTS = ACCOUNTS.filter(a => a.shared);
 const PERSONAL_ACCOUNTS = ACCOUNTS.filter(a => !a.shared);
 const isShared = k => SHARED_ACCOUNTS.some(a => a.k === k);
@@ -112,6 +119,11 @@ const hiddenTx = new Set();
 const txAll = () => { const list = S.demo ? S.demoTx : S.tx; return hiddenTx.size ? list.filter(t => !hiddenTx.has(t.id)) : list; };
 const budgets = () => S.demo ? S.demoBudgets : S.budgets;
 const monthTx = () => txAll().filter(t => t.date.slice(0, 7) === S.month);
+// Upcoming entries: dated after today. They show in the list (greyed, under "Upcoming") but aren't counted in any
+// total, balance, budget or stat until their day comes. "Counted" lists are what everything that adds up reads.
+const isUpcoming = t => t.date > todayISO();
+const countedTx = () => txAll().filter(t => !isUpcoming(t));
+const monthCounted = () => monthTx().filter(t => !isUpcoming(t));
 
 function clean(id, d) {
   if (!d || typeof d !== "object") return null;
@@ -225,7 +237,7 @@ function buildDemo() {
     [5, "expense", "bills", 3120, "gcash", "a", "Electric bill"],
     [6, "expense", "groceries", 940, "cash", "b", "Palengke run"],
     [7, "expense", "leisure", 1680, "card", "a", "Family dinner out"],
-    [8, "transfer", null, 5000, "maribank", "a", "Pay credit card", "card"],
+    [8, "transfer", null, 5000, "maribank", "a", "Pay Atome", "card"],
     [9, "expense", "bills", 1699, "card", "a", "Internet"],
     [10, "expense", "padala", 3000, "gcash", "b", "Padala to Nanay"],
     [11, "expense", "health", 820, "cash", "b", "Vitamins & meds"],
@@ -348,7 +360,7 @@ function playAnims(main) {
 
 function drawChrome() {
   $("#monthLabel").textContent = monthLabel(S.month);
-  const mt = monthTx();
+  const mt = monthCounted();
   const inc = mt.filter(t => t.type === "income").reduce((a, t) => a + t.amount, 0);
   const exp = mt.filter(t => t.type === "expense").reduce((a, t) => a + t.amount, 0);
   $("#sum").innerHTML = `<div><span>Income</span><b class="num inc">${peso(inc)}</b></div><div><span>Expenses</span><b class="num exp">${peso(exp)}</b></div>
@@ -392,13 +404,13 @@ function drawChrome() {
 // Under Balance: what the logged entries add up to in each account (starting balances not included), for the
 // person on this phone: the shared Cash (everyone's entries), then only their own GCash, GoTyme, MariBank and
 // PSBank (their own entries). Everyone else's accounts aren't shown, and neither is any account at ₱0.
-// The credit card is money owed, not on hand, so it isn't listed.
+// Atome and SPayLater are money owed, not on hand, so they aren't listed.
 function balanceBreakdown() {
   const me = S.demo ? "demo-a" : S.meId || "local";
   const r2 = b => Math.round(b * 100) / 100;
-  const cash = r2(flow(txAll(), "cash"));
-  const myTx = txAll().filter(t => t.by === me);
-  const mine = [...PERSONAL_ACCOUNTS.filter(a => hasAccount(me, a)), ...OLD_ACCOUNTS]
+  const cash = r2(flow(countedTx(), "cash"));
+  const myTx = countedTx().filter(t => t.by === me);
+  const mine = [...PERSONAL_ACCOUNTS.filter(a => hasAccount(me, a) && !a.owed), ...OLD_ACCOUNTS] // not SPayLater: it's owed
     .map(a => ({ a, b: r2(flow(myTx, a.k)) }))
     .filter(r => r.b);
   const row = (a, b, tag) => `<div class="bb"><span class="nm">${acctIcon(a)}<span class="bb-n">${esc(a.n)}${tag ? `<span class="bb-tag">${tag}</span>` : ""}</span></span><b class="num ${b < 0 ? "exp" : "inc"}">${peso(b)}</b></div>`;
@@ -407,7 +419,7 @@ function balanceBreakdown() {
 }
 
 function familyCard() {
-  const mt = monthTx().filter(t => t.type === "expense");
+  const mt = monthCounted().filter(t => t.type === "expense");
   const ids = [...new Set([S.demo ? "demo-a" : S.meId, ...txAll().map(t => t.by)].filter(Boolean))];
   const spent = id => mt.filter(t => t.by === id).reduce((a, t) => a + t.amount, 0);
   const people = ids.length ? ids.map(id => `<div class="person">${avatar(id)}<span class="nm">${esc(who(id).name)}</span><span class="amt num">${peso(spent(id))}</span></div>`).join("") : `<span class="meta">People appear here once they log an entry.</span>`;
@@ -444,7 +456,7 @@ function txRow(t) {
     </div>`}
     <div class="tx">
       <span class="tx-cat"><span class="e" aria-hidden="true">${c.e}</span><span class="n">${esc(c.n)}</span></span>
-      <span class="tx-main"><span class="tx-title"><span class="tx-t">${esc(t.note || c.n)}</span>${t.photos ? CLIP_ICON : ""}</span><span class="tx-sub">${esc(acct)} · ${esc(who(t.by).name)}</span></span>
+      <span class="tx-main"><span class="tx-title"><span class="tx-t">${esc(t.note || c.n)}</span>${t.photos ? CLIP_ICON : ""}</span><span class="tx-sub">${isUpcoming(t) ? `<span class="soon">Upcoming</span> ` : ""}${esc(acct)} · ${esc(who(t.by).name)}</span></span>
       <span class="num tx-amt ${cls}">${peso(t.amount)}</span>
     </div>
   </div>`;
@@ -455,7 +467,7 @@ function dayGroup(date, list, showMonth) {
   const wd = d.getDay();
   const inc = list.filter(t => t.type === "income").reduce((a, t) => a + t.amount, 0);
   const exp = list.filter(t => t.type === "expense").reduce((a, t) => a + t.amount, 0);
-  return `<section class="day"><div class="day-h">
+  return `<section class="day${date > todayISO() ? " later" : ""}"><div class="day-h">
     <span class="day-n num">${d.getDate()}</span>
     <span class="day-w"><span class="wd${wd === 0 ? " sun" : wd === 6 ? " sat" : ""}">${d.toLocaleDateString("en-PH", { weekday: "short" })}</span>${showMonth ? `<span class="my">${pad(d.getMonth() + 1)}.${d.getFullYear()}</span>` : ""}</span>
     <span class="num inc">${inc ? peso(inc) : ""}</span><span class="num exp">${exp ? peso(exp) : ""}</span>
@@ -518,8 +530,9 @@ function searchResults() {
     return `<div class="empty"><h2>No matching entries</h2><p>Nothing in ${esc(where)} matches ${q ? `“${esc(q)}”` : "these filters"}.</p>
       ${S.f.scope === "month" ? `<button class="btn" type="button" data-act="scope" data-scope="all">Search all time</button>` : ""}</div>`;
   }
-  const out = list.filter(t => t.type === "expense").reduce((a, t) => a + t.amount, 0);
-  const inc = list.filter(t => t.type === "income").reduce((a, t) => a + t.amount, 0);
+  const now = list.filter(t => !isUpcoming(t)); // the totals leave out upcoming entries, like everywhere else
+  const out = now.filter(t => t.type === "expense").reduce((a, t) => a + t.amount, 0);
+  const inc = now.filter(t => t.type === "income").reduce((a, t) => a + t.amount, 0);
   const byDay = {};
   list.forEach(t => (byDay[t.date] = byDay[t.date] || []).push(t));
   return `<section class="card result-sum"><span><b>${list.length}</b> ${list.length === 1 ? "entry" : "entries"} · ${esc(where)}</span>
@@ -537,7 +550,10 @@ function transBody() {
   else {
     const byDay = {};
     [...mt].sort(newestDayFirst).forEach(t => (byDay[t.date] = byDay[t.date] || []).push(t));
-    body = Object.keys(byDay).map(d => dayGroup(d, byDay[d])).join("");
+    // Days after today sit together at the top under "Upcoming", greyed: logged ahead, not counted yet.
+    const today = todayISO(), days = Object.keys(byDay), later = days.filter(d => d > today), past = days.filter(d => d <= today);
+    body = (later.length ? `<div class="later-box"><div class="later-h"><span class="label">Upcoming</span><span class="meta">Not counted until their day</span></div>${later.map(d => dayGroup(d, byDay[d])).join("")}</div>` : "")
+      + past.map(d => dayGroup(d, byDay[d])).join("");
   }
   // The day's entries come first; the per-person summary sits below them.
   return body + familyCard();
@@ -554,7 +570,7 @@ function calendar(mt) {
     const list = mt.filter(t => t.date === date);
     const inc = list.filter(t => t.type === "income").reduce((a, t) => a + t.amount, 0);
     const exp = list.filter(t => t.type === "expense").reduce((a, t) => a + t.amount, 0);
-    cells += `<button type="button" class="cell${date === today ? " today" : ""}" data-act="day" data-date="${date}" aria-pressed="${date === S.selDay}" aria-label="${d} ${esc(monthLabel(S.month))}${exp ? ", spent " + peso(exp) : ""}">
+    cells += `<button type="button" class="cell${date === today ? " today" : ""}${date > today ? " later" : ""}" data-act="day" data-date="${date}" aria-pressed="${date === S.selDay}" aria-label="${d} ${esc(monthLabel(S.month))}${exp ? ", spent " + peso(exp) : ""}">
       <span class="d num">${d}</span>${inc ? `<span class="v num inc">${peso(inc)}</span>` : ""}${exp ? `<span class="v num exp">${peso(exp)}</span>` : ""}</button>`;
   }
   const trailing = (7 - ((first + n) % 7)) % 7;
@@ -580,7 +596,7 @@ function donut(parts, total, label, open) {
 
 function viewStats() {
   const type = S.statType;
-  const mt = monthTx().filter(t => t.type === type);
+  const mt = monthCounted().filter(t => t.type === type);
   const total = mt.reduce((a, t) => a + t.amount, 0);
   const seg = `<div class="bar-row"><div class="seg" role="group" aria-label="Show"><button type="button" data-act="stat" data-type="expense" aria-pressed="${type === "expense"}">Expenses</button><button type="button" data-act="stat" data-type="income" aria-pressed="${type === "income"}">Income</button></div></div>`;
   if (!mt.length) return seg + `<div class="empty"><h2>No ${type === "expense" ? "expenses" : "income"} in ${esc(monthLabel(S.month))}</h2><p>Stats fill in as your family logs entries.</p></div>`;
@@ -612,7 +628,7 @@ function viewStats() {
 
 function viewBudget() {
   const lim = budgets();
-  const mt = monthTx().filter(t => t.type === "expense");
+  const mt = monthCounted().filter(t => t.type === "expense");
   const spent = k => mt.filter(t => t.cat === k).reduce((a, t) => a + t.amount, 0);
   const totalLim = Object.values(lim).reduce((a, v) => a + v, 0);
   const totalSpent = CATS.expense.filter(c => lim[c.k]).reduce((a, c) => a + spent(c.k), 0);
@@ -642,32 +658,32 @@ function viewBudget() {
 }
 
 // ---------- Bill reminders ----------
-// Sent by api/reminders.js at 8 AM the day before a recurring expense is due.
+// Sent by api/reminders.js at 8 AM the day before a recurring expense is due, or an expense logged ahead.
 const REMINDER_TIME = "8 AM";
+const dayBefore = iso => { const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() - 1); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
+// Upcoming one-time expenses that get a reminder (not ones a repeating bill added: that bill has its own).
+const aheadExpenses = () => txAll().filter(t => t.type === "expense" && isUpcoming(t) && !(t.id || "").startsWith("r_"));
 function nextReminder() {
   const today = todayISO();
   let best = null;
+  const consider = (due, r) => { const remind = dayBefore(due); if (remind > today && (!best || remind < best.remind)) best = { remind, due, r }; return remind > today; };
   for (const r of S.recurring) {
     if (!r.active || r.type !== "expense") continue;
-    for (const m of [today.slice(0, 7), shiftMonth(today.slice(0, 7), 1)]) {
-      const due = dueDate(r, m);
-      const d = new Date(due + "T00:00:00"); d.setDate(d.getDate() - 1);
-      const remind = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-      if (remind > today) { if (!best || remind < best.remind) best = { remind, due, r }; break; }
-    }
+    for (const m of [today.slice(0, 7), shiftMonth(today.slice(0, 7), 1)]) if (consider(dueDate(r, m), r)) break;
   }
+  for (const t of aheadExpenses()) consider(t.date, t);
   return best;
 }
 function reminderSection() {
   if (S.demo || !S.user || !S.rem || S.rem === "unavailable") return "";
-  const bills = S.recurring.filter(r => r.active && r.type === "expense").length;
+  const bills = S.recurring.filter(r => r.active && r.type === "expense").length + aheadExpenses().length;
   const day = iso => new Date(iso + "T00:00:00").toLocaleDateString("en-PH", { month: "short", day: "numeric" });
   const msg = {
     "needs-install": `On iPhone, reminders only work in the installed app. Tap ${SHARE_ICON} <b>Share</b> → <b>Add to Home Screen</b>, open AlkanSave from your Home Screen, and turn them on there.`,
     unsupported: "This browser can't show reminders. Open AlkanSave in Chrome, or install it to your Home Screen.",
     denied: "Notifications are blocked for AlkanSave on this phone. Allow them in your phone's settings for this app (or the browser's site settings), then reopen AlkanSave.",
-    off: `Get a notification at ${REMINDER_TIME} the day before each repeating bill is due.`,
-    on: `On for this phone. You'll get a notification at ${REMINDER_TIME} the day before each repeating bill is due.`
+    off: `Get a notification at ${REMINDER_TIME} the day before each repeating bill, or expense you log ahead, is due.`,
+    on: `On for this phone. You'll get a notification at ${REMINDER_TIME} the day before each repeating bill, or expense you log ahead, is due.`
   }[S.rem] || "";
   const next = S.rem === "on" && nextReminder();
   const none = (S.rem === "on" || S.rem === "off") && !bills;
@@ -676,7 +692,7 @@ function reminderSection() {
   return `<section class="card"><span class="label">Bill reminders${S.rem === "on" ? " · On" : ""}</span>
     <p class="meta">${msg}</p>
     ${next ? `<p class="meta">Next: <b>${day(next.remind)}</b>, for ${esc(next.r.note || catOf("expense", next.r.cat).n)} (due ${day(next.due)}).</p>` : ""}
-    ${none ? `<p class="meta">Reminders are for bills set to repeat every month. Tick <b>Repeat every month</b> when you log rent, Meralco or internet.</p>` : ""}
+    ${none ? `<p class="meta">Reminders are for bills set to repeat every month, and expenses you log for a later date. Tick <b>Repeat every month</b> when you log rent, Meralco or internet.</p>` : ""}
     ${button ? `<div>${button}</div>` : ""}</section>`;
 }
 async function turnOnReminders() {
@@ -714,7 +730,7 @@ function recurringSection() {
     ${rows ? `<p class="meta">Each is added automatically on its day. ${S.canWrite ? "Tap one to change its amount or day, or to stop it." : ""}</p>` : ""}</section>`;
 }
 
-// ---------- Accounts: each family member's own Cash, GCash, GoTyme, MariBank, PSBank and credit card ----------
+// ---------- Accounts: each family member's own GCash, GoTyme, MariBank and PSBank (and SPayLater), plus the shared Cash and Atome ----------
 // People whose accounts are shown: everyone in the book (you first), plus anyone who logged entries before leaving.
 function accountOwners() {
   if (S.demo) return ["demo-a", "demo-b"];
@@ -726,7 +742,7 @@ function accountOwners() {
 const without = (obj, keys) => Object.fromEntries(Object.entries(obj).filter(([k]) => !keys.includes(k)));
 const SHARED_KEYS = SHARED_ACCOUNTS.map(a => a.k);
 
-// Starting balances of the shared Cash and credit card (config/shared). Until someone sets them, the Cash
+// Starting balances of the shared Cash and Atome (config/shared). Until someone sets them, the Cash
 // and card amounts saved before accounts were split (config/accounts) are used.
 function sharedStarts() {
   if (S.demo) return {};
@@ -752,7 +768,7 @@ const flow = (list, k) => list.reduce((a, t) => {
 // Shared accounts: everyone's entries count.
 function sharedBalances() {
   const st = sharedStarts();
-  return SHARED_ACCOUNTS.map(a => ({ ...a, b: (st[a.k] || 0) + flow(txAll(), a.k) }));
+  return SHARED_ACCOUNTS.map(a => ({ ...a, b: (st[a.k] || 0) + flow(countedTx(), a.k) }));
 }
 // PSBank and Deel belong only to the book's owner: everyone else gets "—" in that row, and doesn't see them
 // when setting starting balances or logging entries. Without sign-in, the one person on this phone has them all.
@@ -765,7 +781,7 @@ function hasAccount(owner, a) {
 }
 // A person's balance in one of their own accounts: their starting amount plus the entries they logged.
 function personalBalance(owner, k) {
-  return (startsOf(owner)[k] || 0) + flow(txAll().filter(t => t.by === owner), k);
+  return (startsOf(owner)[k] || 0) + flow(countedTx().filter(t => t.by === owner), k);
 }
 const SHARED_BADGE = `<span class="av shared-av" aria-hidden="true">👪</span>`;
 // Column heading: first name ("You" before a name is known).
@@ -789,11 +805,15 @@ function viewAccounts() {
   const liab = values.filter(b => b < 0).reduce((s, b) => s + b, 0);
   const ownerNets = owners.map((_, i) => grid.reduce((s, r) => s + r.cells[i], 0));
   const name = a => `<th scope="row"><span class="acct-name">${acctIcon(a)}<span>${esc(a.n)}</span></span></th>`;
-  // Rows in the order of the account list: Cash, GCash, GoTyme, MariBank, PSBank, (old accounts), Credit card.
+  // Rows in the order of the account list: Cash, GCash, GoTyme, MariBank, PSBank, SPayLater, (old accounts), Atome.
   // Shared accounts have one family amount, shown in Total.
-  // "—" for someone who doesn't have the account (PSBank and Deel are only the owner's), unless money somehow shows up there.
+  // "—" for someone who doesn't have the account (PSBank, SPayLater and Deel are only the owner's), unless money somehow shows up there.
   const NONE = `<span class="num none">—</span>`;
-  const cell = (o, a, b, show) => `<td class="pc">${hasAccount(o, a) || b ? show(b) : NONE}</td>`;
+  // Your own MariBank amount is a button: tap it to log the interest it's earned (see "Bank interest").
+  const me = S.demo ? "demo-a" : S.meId || "local";
+  const cell = (o, a, b, show) => a.k === INTEREST_ACCOUNT && o === me && (S.demo || S.canWrite)
+    ? `<td class="pc"><button type="button" class="bal-tap" data-act="interest" aria-label="Add ${esc(a.n)} interest">${show(b)}</button></td>`
+    : `<td class="pc">${hasAccount(o, a) || b ? show(b) : NONE}</td>`;
   const personalRow = r => `<tr>${name(r.a)}${r.cells.map((b, i) => cell(owners[i], r.a, b, money)).join("")}<td class="tot">${money(r.cells.reduce((s, b) => s + b, 0))}</td></tr>`;
   const sharedRow = r => `<tr>${name(r)}<td colspan="${owners.length}" class="shared-cell">shared</td><td class="tot">${money(r.b)}</td></tr>`;
   const sharedOf = k => shared.find(r => r.k === k);
@@ -830,13 +850,13 @@ const foldHead = (k, label) => `<button type="button" class="card-head fold" dat
     <svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>`;
 
 // What each account held before the family started logging. Anyone who can edit sets the shared Cash and
-// card; everyone sets their own GCash, GoTyme, MariBank and PSBank. The card is entered as the amount owed.
+// Atome; everyone sets their own GCash, GoTyme, MariBank and PSBank (and SPayLater). Atome and SPayLater are entered as the amount owed.
 function startSection() {
   if (S.demo) return "";
   const head = foldHead("starts", "Starting balances");
   if (!foldOpen("starts")) return `<section class="card">${head}</section>`;
   const row = (a, st, editable, attr) => {
-    const owed = a.k === "card";
+    const owed = !!a.owed;
     const v = st[a.k] ? (owed ? -st[a.k] : st[a.k]) : 0;
     const value = editable
       ? `<label class="limit"><span>₱</span><input ${attr}="${a.k}" inputmode="decimal" value="${grouped(v)}" placeholder="0" aria-label="Starting ${owed ? "amount owed on" : "balance of"} ${esc(a.n)}"></label>`
@@ -851,7 +871,7 @@ function startSection() {
     + PERSONAL_ACCOUNTS.filter(a => hasAccount(me, a)).map(a => row(a, startsOf(me), true, "data-start")).join("")
     + (!hasAccount(me, DEEL) ? "" : `<div class="acct">${acctIcon(DEEL)}<div><div class="nm">Deel</div><div class="sub">Your balance now, in US dollars</div></div><label class="limit"><span>$</span><input data-start="deel" inputmode="decimal" value="${grouped(startsOf(me).deel)}" placeholder="0" aria-label="Deel balance in US dollars"></label></div>`);
   return `<section class="card">${head}<div class="fold-body" data-fold="starts">
-    <p class="meta">What was already in each account before you started logging. The shared Cash and card are for the whole family; your GCash, GoTyme, MariBank and PSBank are just yours.</p>${shared}${mine}</div></section>`;
+    <p class="meta">What was already in each account before you started logging. The shared Cash and Atome are for the whole family; your other accounts are just yours. For Atome and SPayLater, enter what you owed.</p>${shared}${mine}</div></section>`;
 }
 
 function exportSection() {
@@ -1278,10 +1298,13 @@ sheet.addEventListener("submit", async e => {
   const saved = prev ? "✓ Entry updated"
     : `✓ ${peso(data.amount)} ${type} added · ${where}${repeats ? ` · repeats on the ${repeatLabel(chosenPattern())}` : ""}`;
   // The check card the saving card turns into, e.g. "Expense added / ₱1 / Other · Cash".
+  // Dated after today: it's upcoming, so the card says when it will count ("Expense scheduled · for Wed, 11 Nov").
+  const later = isUpcoming(data);
+  const when = later ? `for ${new Date(date + "T00:00:00").toLocaleDateString("en-PH", { weekday: "short", day: "numeric", month: "short" })} · ` : "";
   const done = {
-    title: prev ? "Entry updated" : `${type[0].toUpperCase()}${type.slice(1)} added`,
+    title: prev ? (later ? "Upcoming entry updated" : "Entry updated") : `${type[0].toUpperCase()}${type.slice(1)} ${later ? "scheduled" : "added"}`,
     amount: peso(data.amount), cls: type === "income" ? "inc" : type === "expense" ? "exp" : "",
-    sub: where + (repeats ? ` · repeats on the ${repeatLabel(chosenPattern())}` : ""), text: saved
+    sub: when + where + (repeats ? ` · repeats on the ${repeatLabel(chosenPattern())}` : ""), text: later ? saved.replace(" added", " scheduled") : saved
   };
   if (S.demo) {
     const row = { id: prev ? prev.id : "demo" + Date.now(), photos: 0, desc: "", ...data };
@@ -1320,6 +1343,20 @@ sheet.addEventListener("submit", async e => {
   });
 });
 
+// A new day: upcoming entries dated today start counting. Redraw at midnight if the app is open, and when it comes
+// back on screen on a later day (phones pause timers while an app is in the background).
+let shownDay = todayISO();
+function checkNewDay() {
+  if (todayISO() === shownDay) return;
+  shownDay = todayISO();
+  paint();
+}
+(function atMidnight() {
+  const now = new Date(), next = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 5);
+  setTimeout(() => { checkNewDay(); atMidnight(); }, next - now);
+})();
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") checkNewDay(); });
+
 // After saving: scroll the list to that entry and light it up for a moment, so it's easy to spot.
 // Only when it's on screen (the Daily list or the calendar's day, not another tab).
 // The glow carries on through list redraws (txRow picks it up from `glow` partway through).
@@ -1339,6 +1376,66 @@ const glowAttrs = id => {
   const left = glow && glow.id === id ? GLOW_MS - (Date.now() - glow.at) : 0;
   return left > 0 ? ` just-saved" style="--glow-delay:${left - GLOW_MS}ms` : "";
 };
+
+// ---------- Bank interest ----------
+// MariBank adds interest daily. Tapping your own MariBank amount in the Balances table asks what the MariBank app
+// shows now; the difference from AlkanSave's amount (your starting balance plus your MariBank entries) is logged as
+// an income entry: Interest, your MariBank, "Maribank Interest", today. Nothing is added when the difference
+// isn't positive: then AlkanSave already matches, or an expense or transfer is probably missing.
+const round2 = v => Math.round(v * 100) / 100;
+function askInterest() {
+  const me = S.demo ? "demo-a" : S.meId || "local";
+  const a = acctOf(INTEREST_ACCOUNT);
+  const have = round2(personalBalance(me, a.k));
+  const el = document.createElement("div");
+  el.className = "ask";
+  el.innerHTML = `<form class="ask-card" role="dialog" aria-modal="true" aria-labelledby="askTitle" novalidate>
+      <h2 id="askTitle">${acctIcon(a)}${esc(a.n)} interest</h2>
+      <p>AlkanSave has <b class="num">${peso(have)}</b> in your ${esc(a.n)}. How much does your ${esc(a.n)} app show now?</p>
+      <label class="ask-amt"><span>₱</span><input id="interest-amt" inputmode="decimal" autocomplete="off" placeholder="0" aria-label="Your ${esc(a.n)} balance now"></label>
+      <p class="ask-result" aria-live="polite"></p>
+      <div class="actions"><button type="button" class="btn" data-close>Cancel</button><button type="submit" class="btn primary">Add interest</button></div>
+    </form>`;
+  const input = el.querySelector("input"), result = el.querySelector(".ask-result");
+  const diff = () => input.value.trim() ? round2(parseAmount(input.value) - have) : null;
+  const show = () => {
+    const d = diff();
+    result.className = "ask-result" + (d > 0 ? " inc" : d === null ? "" : " warn");
+    result.textContent = d === null ? "" : d > 0 ? `Interest to add: ${peso(d)}`
+      : d === 0 ? `Your ${a.n} already matches. There's no interest to add.`
+      : `Your ${a.n} in AlkanSave is ${peso(-d)} more than that. An expense or transfer may be missing.`;
+  };
+  const close = () => { el.remove(); document.removeEventListener("keydown", onKey, true); };
+  const onKey = e => { if (e.key === "Escape") { e.stopImmediatePropagation(); close(); } };
+  input.addEventListener("input", show);
+  el.addEventListener("click", e => { if (e.target === el || e.target.closest("[data-close]")) close(); });
+  el.querySelector("form").addEventListener("submit", e => {
+    e.preventDefault();
+    const d = diff();
+    if (!(d > 0)) { if (d === null) { result.className = "ask-result warn"; result.textContent = `Enter what your ${a.n} app shows now.`; } else show(); input.focus(); return; }
+    close();
+    addInterest(d);
+  });
+  document.addEventListener("keydown", onKey, true);
+  document.body.append(el);
+  input.focus(); // still inside the tap, so phones bring up the number keyboard
+}
+// Saves the interest as a new income entry, with the same saving card and green check as the entry form.
+function addInterest(amount) {
+  const a = acctOf(INTEREST_ACCOUNT), cat = catOf("income", "interest");
+  const data = {
+    type: "income", amount, date: todayISO(), cat: cat.k, acct: a.k, to: null, note: `${a.n} Interest`,
+    by: S.demo ? "demo-a" : S.meId, createdAt: Date.now(), updatedAt: 0, updatedBy: null
+  };
+  const done = { title: "Interest added", amount: peso(amount), cls: "inc", sub: `${cat.n} · ${a.n}`, text: `✓ ${peso(amount)} interest added · ${a.n}` };
+  if (S.demo) {
+    S.demoTx = [...S.demoTx, { id: "demo" + Date.now(), photos: 0, desc: "", order: null, ...data }];
+    paint(); showLoader("").done(done); return;
+  }
+  const ref = S.db.collection("tx").doc();
+  const loader = showLoader("Adding interest…");
+  writeWithRetry(() => ref.set(data)).then(() => loader.done(done)).catch(x => { loader.hide(); flash(writeError(x)); });
+}
 
 // Full-screen "busy" card over the app, e.g. "Saving your entry…". Returns { done(info), hide() }.
 // done() turns the spinner into a green check with what was saved (info: title, amount, cls, sub), which
@@ -1422,9 +1519,9 @@ function saveBudget(k, raw) {
 // Starting balances save as you type and when you leave the box (see saveBox). Each save goes out right away rather than waiting for the
 // one before it to reach the server: Firestore shows it on this phone at once (offline too) and sends this phone's
 // saves in order. Waiting held back every amount after the first on a slow connection, and they could undo each other.
-// Saves the shared Cash / credit card starting balance (config/shared) for the whole family.
+// Saves the shared Cash / Atome starting balance (config/shared) for the whole family.
 function saveSharedStart(k, raw) {
-  const v = parseAmount(raw) * (k === "card" ? -1 : 1);
+  const v = parseAmount(raw) * (isOwed(k) ? -1 : 1);
   const start = { ...sharedStarts() };
   if ((start[k] || 0) === v) return;
   if (v) start[k] = v; else delete start[k];
@@ -1436,7 +1533,7 @@ function saveSharedStart(k, raw) {
 // In a family book only the changed account is written. The first save of someone whose amounts are still kept
 // the old shared way writes them all, which moves them over to their member record.
 function saveStart(k, raw) {
-  const v = parseAmount(raw) * (k === "card" ? -1 : 1);
+  const v = parseAmount(raw) * (isOwed(k) ? -1 : 1);
   const start = { ...startsOf(S.meId) };
   if ((start[k] || 0) === v) return;
   if (v) start[k] = v; else delete start[k];
@@ -1818,6 +1915,7 @@ document.addEventListener("click", e => {
   else if (act === "attach") { if (isAndroid) $("#attachMenu").hidden = !$("#attachMenu").hidden; else $("#f-file").click(); }
   else if (act === "attach-cam") { $("#attachMenu").hidden = true; $("#f-cam").click(); }
   else if (act === "attach-pick") { $("#attachMenu").hidden = true; $("#f-file").click(); }
+  else if (act === "interest") askInterest();
   else if (act === "photo-remove") { photoForm.list.splice(Number(a.dataset.i), 1); photoForm.changed = true; renderPhotos(); }
   else if (act === "photo-view") viewPhoto(photoForm.list[Number(a.dataset.i)]);
   else if (act === "cat-toggle") showCats($("#f-cats").hidden);
@@ -1930,7 +2028,7 @@ $("#main").addEventListener("focusout", e => { if (e.target.matches && e.target.
 // Leaving the app with the keyboard still up doesn't always count as leaving the box.
 addEventListener("pagehide", () => { const el = document.activeElement; if (el && el.matches && el.matches(SAVED_BOXES)) saveBox(el); });
 // Commas go in while typing in any amount box; the cursor stays after the same digit it was after.
-const AMOUNT_INPUTS = "#f-amount, input[data-lim], input[data-start], input[data-start-shared]";
+const AMOUNT_INPUTS = "#f-amount, #interest-amt, input[data-lim], input[data-start], input[data-start-shared]";
 document.addEventListener("input", e => {
   const el = e.target;
   if (!el.matches || !el.matches(AMOUNT_INPUTS)) return;

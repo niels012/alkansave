@@ -8,7 +8,7 @@ const CATEGORY = {
   tithing: "Tithing", pet: "Pet", other: "Other"
 };
 const ACCOUNT = {
-  cash: "Cash", gcash: "GCash", gotyme: "GoTyme", maribank: "MariBank", psbank: "PSBank", card: "Credit card",
+  cash: "Cash", gcash: "GCash", gotyme: "GoTyme", maribank: "MariBank", psbank: "PSBank", spaylater: "SPayLater", card: "Atome",
   maya: "Maya", bank: "Bank"
 };
 
@@ -28,6 +28,18 @@ export function billsDueOn(recurring, date) {
     .filter(r => r && r.active !== false && r.type === "expense" && r.amountCents > 0 && dueDay(r, y, m) === d)
     .sort((a, b) => b.amountCents - a.amountCents);
 }
+
+// One-time entries logged ahead ("upcoming") for a date: expenses only. Entries added by a repeating bill
+// (they carry its "rec") are left out: that bill already has its own reminder.
+export function entriesDueOn(tx, date) {
+  return tx
+    .filter(t => t && t.type === "expense" && t.date === date && t.amountCents > 0 && !t.rec)
+    .sort((a, b) => b.amountCents - a.amountCents);
+}
+
+// Everything to remind about for a date: repeating bills and upcoming one-time expenses, biggest first.
+export const dueOn = (recurring, tx, date) =>
+  [...billsDueOn(recurring, date), ...entriesDueOn(tx, date)].sort((a, b) => b.amountCents - a.amountCents);
 
 export function reminderText(bills) {
   if (bills.length === 1) {

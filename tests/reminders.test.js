@@ -1,7 +1,7 @@
 // Tests for which bills get a reminder and what it says. Run with: npm test
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { billsDueOn, reminderText, manilaDate } from "../api/_due.js";
+import { billsDueOn, entriesDueOn, dueOn, reminderText, manilaDate } from "../api/_due.js";
 
 const bill = (extra = {}) => ({ type: "expense", amountCents: 1450000, cat: "bills", acct: "bank", note: "Rent", day: 5, active: true, ...extra });
 
@@ -64,4 +64,23 @@ test("dates are Philippine time", () => {
   const now = Date.UTC(2026, 10, 30, 17, 0);
   assert.equal(manilaDate(0, now), "2026-12-01");
   assert.equal(manilaDate(1, now), "2026-12-02");
+});
+
+// ---------- Expenses logged ahead (upcoming one-time entries) ----------
+const entry = (extra = {}) => ({ type: "expense", amountCents: 129900, cat: "bills", acct: "gcash", note: "WiFi", date: "2026-11-11", ...extra });
+
+test("an expense logged ahead gets a reminder the day before its date", () => {
+  assert.equal(entriesDueOn([entry()], "2026-11-11").length, 1);
+  assert.equal(entriesDueOn([entry()], "2026-11-10").length, 0);
+  assert.deepEqual(reminderText(entriesDueOn([entry()], "2026-11-11")), { title: "Due tomorrow: WiFi", body: "₱1,299 from GCash" });
+});
+
+test("income, transfers and entries from a repeating bill get no separate reminder", () => {
+  const list = [entry({ type: "income" }), entry({ type: "transfer" }), entry({ rec: "r1" })];
+  assert.equal(entriesDueOn(list, "2026-11-11").length, 0);
+});
+
+test("repeating bills and expenses logged ahead go in one reminder, biggest first", () => {
+  const due = dueOn([bill({ day: 11 })], [entry()], "2026-11-11");
+  assert.deepEqual(reminderText(due), { title: "2 bills due tomorrow · ₱15,799", body: "Rent ₱14,500 · WiFi ₱1,299" });
 });

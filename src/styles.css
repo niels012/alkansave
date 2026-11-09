@@ -120,6 +120,13 @@ main.wrap { padding-block: 12px calc(var(--nav-h) + 96px + env(safe-area-inset-b
   background: var(--surface); border-block: 1px solid var(--line); margin-left: calc(-1 * var(--pl)); margin-right: calc(-1 * var(--pr)); }
 #results > .day + .day { margin-top: -6px; } /* 8px between days instead of the 14px between cards */
 @media (min-width: 700px) { .day { margin-inline: 0; border: 1px solid var(--line); } }
+/* Upcoming: days after today, together at the top, greyed (logged ahead; not counted until their day). */
+.later-box { display: grid; gap: 8px; }
+.later-h { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.later-h .meta { margin: 0; font-size: 12px; }
+.day.later .day-h > *, .day.later .tx > * { opacity: .55; }
+.soon { display: inline-block; padding: 0 6px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 10.5px; font-weight: 700; line-height: 1.6; }
+.cell.later .v { opacity: .45; }
 .day-h { display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 10px; padding: 8px var(--pr) 8px var(--pl); border-bottom: 1px solid var(--line); }
 .day-n { font-family: var(--display); font-weight: 700; font-size: 26px; line-height: 1; }
 .day-w { display: flex; align-items: center; gap: 8px; line-height: 1.15; }
@@ -459,6 +466,27 @@ button.rec[disabled] { cursor: default; color: inherit; }
 .bal-table .bal-group th { padding-top: 14px; font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
 .bal-table .bal-group .av { width: 24px; height: 24px; }
 .bal-table .none { color: var(--muted); font-weight: 600; }
+/* Your own MariBank amount: tap it to add interest (dotted underline says it does something). */
+.bal-tap { border: 0; background: none; padding: 2px 4px; margin: -2px -4px; border-radius: 6px; font: inherit; color: inherit; cursor: pointer;
+  text-decoration: underline dotted; text-decoration-color: var(--muted); text-underline-offset: 4px; }
+.bal-tap:hover, .bal-tap:focus-visible { background: var(--sunk); }
+/* "How much does your MariBank show now?" box over the app. */
+.ask { position: fixed; inset: 0; z-index: 40; display: grid; grid-template-columns: minmax(0, 1fr); place-items: center; padding: 20px; background: color-mix(in srgb, #000 45%, transparent); animation: loader-in .15s ease; }
+.ask-card { width: 100%; max-width: 360px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 12px; padding: 20px; border-radius: 18px; background: var(--surface); box-shadow: 0 12px 34px color-mix(in srgb, #000 22%, transparent); }
+.ask-card h2 { margin: 0; display: flex; align-items: center; gap: 10px; font-family: var(--display); font-size: 18px; }
+.ask-card h2 .ico { width: 30px; height: 30px; border-radius: 9px; }
+.ask-card h2 .ico.logo img { border-radius: 9px; width: 30px; height: 30px; }
+.ask-card p { margin: 0; color: var(--muted); font-size: 14px; }
+.ask-card p b { color: var(--ink); }
+.ask-amt { display: flex; align-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 12px; padding: 4px 12px; }
+.ask-amt:focus-within { border-color: var(--accent); }
+.ask-amt span { font-family: var(--display); font-size: 22px; color: var(--muted); }
+.ask-amt input { flex: 1; min-width: 0; border: 0; background: transparent; padding: 8px 0; font-family: var(--display); font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.ask-amt input:focus { outline: none; }
+.ask-result { font-size: 14px; font-weight: 600; min-height: 20px; }
+.ask-result.inc { color: var(--income); }
+.ask-result.warn { color: var(--expense); font-weight: 500; }
+.ask-card .actions { display: flex; justify-content: flex-end; gap: 8px; }
 .bal-table .shared-cell { text-align: center; color: var(--muted); font-size: 11.5px; font-style: italic; }
 .bal-table tfoot th, .bal-table tfoot td { border-top: 2px solid var(--line); font-weight: 800; }
 .bal-table tfoot th { text-align: left; }

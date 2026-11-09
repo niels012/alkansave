@@ -1,5 +1,6 @@
 // Daily bill reminders. Vercel Cron calls this at 8:00 AM Philippine time (see vercel.json).
-// For each family book with bills due tomorrow, sends one notification to every phone of every
+// For each family book with bills due tomorrow (repeating bills, and expenses logged ahead for tomorrow),
+// sends one notification to every phone of every
 // member that turned reminders on (households/{hid}/members/{uid}/devices/{id}).
 //
 // Needs two Vercel environment variables:
@@ -10,7 +11,7 @@
 import { cert, getApps, initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 import { getMessaging } from "firebase-admin/messaging";
-import { billsDueOn, reminderText, manilaDate } from "./_due.js";
+import { dueOn, reminderText, manilaDate } from "./_due.js";
 
 const DEAD_TOKEN = new Set(["messaging/registration-token-not-registered", "messaging/invalid-registration-token", "messaging/invalid-argument"]);
 
@@ -32,7 +33,9 @@ export default async function handler(req, res) {
 
   for (const h of (await db.collection("households").get()).docs) {
     const recurring = (await h.ref.collection("recurring").where("active", "==", true).get()).docs.map(d => d.data());
-    const due = billsDueOn(recurring, date);
+    // Expenses logged ahead for that day get a reminder too, like a bill.
+    const ahead = (await h.ref.collection("tx").where("date", "==", date).get()).docs.map(d => d.data());
+    const due = dueOn(recurring, ahead, date);
     if (!due.length) continue;
 
     const devices = [];
