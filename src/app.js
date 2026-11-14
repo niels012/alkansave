@@ -371,13 +371,20 @@ function drawChrome() {
 
   const live = $("#live");
   const ls = S.demo ? "preview" : S.local ? "local" : S.live;
+  const status = { live: "Live", saving: "Saving…", connecting: "Connecting…", error: "Sync paused", preview: "Sample data", local: "Saved on this device", offline: "Offline · saved on phone" }[ls] || "Connecting…";
   live.dataset.s = ls;
-  live.lastElementChild.textContent = { live: "Live", saving: "Saving…", connecting: "Connecting…", error: "Sync paused", preview: "Sample data", local: "Saved on this device", offline: "Offline · saved on phone" }[ls] || "Connecting…";
+  live.lastElementChild.textContent = status;
 
   // Your photo (initials until it loads, or if there isn't one) when signed in; redrawn only when it changes.
+  // When it shows, it carries the sync status instead of the text badge: a green ring with a glow while live (or
+  // saving), yellow while offline or paused, the plain ring while still connecting. Screen readers hear the status.
   const me = $("#me"), mine = S.user && S.meId && !S.demo ? S.profiles[S.meId] || {} : null;
   const meHtml = mine ? avatar(S.meId, false, mine.name || S.user.email) : "";
   if (me.dataset.html !== meHtml) { me.dataset.html = meHtml; me.innerHTML = meHtml; me.hidden = !meHtml; }
+  live.hidden = !!meHtml;
+  me.dataset.s = ls === "live" || ls === "saving" ? "on" : ls === "offline" || ls === "error" ? "off" : "";
+  me.setAttribute("aria-label", `Your family and account · ${status}`);
+  me.title = status;
 
   // Short messages (entry added, deleted, hints) pop up near the bottom so they're seen wherever you've scrolled.
   const toastKey = S.notice + (S.undo ? "\u0000" + S.undoLabel : "") + (S.noticeBusy ? "\u0000busy" : "");

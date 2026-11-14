@@ -9,6 +9,7 @@ img { max-width: 100%; }
   --accent: #1F55D0; --accent-ink: #FFFFFF; --accent-soft: #DCE6FB;
   --income: #16866A; --expense: #C94233; --warn: #A26A0F; --ok: #2C8754;
   --chart-inc: #16866A; --chart-exp: #C94233; --chart-net: #1F55D0; /* line charts; checked with the dataviz validator */
+  --ring-on: #22B35E; --ring-off: #F2B705; /* sync status around your photo: live, offline */
   --display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
   --body: "Figtree", "Segoe UI", system-ui, -apple-system, sans-serif;
   --r: 14px; --nav-h: 62px; --col: 640px;
@@ -19,6 +20,7 @@ img { max-width: 100%; }
     --accent: #6F9CFF; --accent-ink: #061230; --accent-soft: #1A2A4E;
     --income: #4FC79F; --expense: #F27F70; --warn: #E3AA4D; --ok: #5CC489;
     --chart-inc: #36A880; --chart-exp: #E0604F; --chart-net: #5A88F0;
+    --ring-on: #3DDC84; --ring-off: #F7C948;
     color-scheme: dark;
   }
 }
@@ -27,6 +29,7 @@ img { max-width: 100%; }
   --accent: #6F9CFF; --accent-ink: #061230; --accent-soft: #1A2A4E;
   --income: #4FC79F; --expense: #F27F70; --warn: #E3AA4D; --ok: #5CC489;
   --chart-inc: #36A880; --chart-exp: #E0604F; --chart-net: #5A88F0;
+  --ring-on: #3DDC84; --ring-off: #F7C948;
   color-scheme: dark;
 }
 
@@ -61,7 +64,11 @@ button { cursor: pointer; }
 /* Your photo (or initials) beside the sync status; tapping it opens your family and account on Accounts */
 .top-right { display: flex; align-items: center; gap: 8px; flex: none; }
 .me { border: 0; background: none; padding: 0; border-radius: 50%; cursor: pointer; }
-.me .av { width: 32px; height: 32px; font-size: 12px; box-shadow: 0 0 0 2px var(--surface), 0 0 0 3px var(--line); }
+.me .av { width: 32px; height: 32px; font-size: 12px; box-shadow: 0 0 0 2px var(--surface), 0 0 0 3px var(--line); transition: box-shadow .3s ease; }
+/* The sync status around your photo (in place of the Live badge): green and glowing while live, yellow offline. */
+.me[data-s="on"] .av { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--ring-on), 0 0 10px 4px color-mix(in srgb, var(--ring-on) 55%, transparent); }
+.me[data-s="off"] .av { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--ring-off), 0 0 10px 4px color-mix(in srgb, var(--ring-off) 60%, transparent); }
+.live[hidden] { display: none; }
 .month-row { display: flex; align-items: center; justify-content: center; gap: 6px; }
 .month-row h1 { font-family: var(--display); font-weight: 700; font-size: 22px; margin: 0; min-width: 11ch; text-align: center; letter-spacing: -0.01em; }
 .icon-btn { width: 36px; height: 36px; border-radius: 50%; border: 0; background: transparent; display: grid; place-items: center; font-size: 22px; line-height: 1; color: var(--muted); }
