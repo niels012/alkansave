@@ -87,7 +87,10 @@
         <select id="f-weekday" aria-label="Day of the week" hidden></select>
       </div>
     </div>
-    <label class="field" id="toWrap" hidden><span>To account</span><select id="f-to"></select></label>
+    <div class="field" id="toWrap" hidden><span>To</span>
+      <div class="to-who" id="f-towho" role="radiogroup" aria-label="Who gets the money" hidden></div>
+      <select id="f-to" aria-label="To account"></select>
+    </div>
     <div class="field" id="catWrap"><span>Category</span>
       <button type="button" class="cat-toggle" id="catToggle" data-act="cat-toggle" aria-expanded="false" aria-controls="f-cats"></button>
       <div class="cats" id="f-cats" hidden></div>

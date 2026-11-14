@@ -38,11 +38,13 @@ service cloud.firestore {
     }
 
     function validTx(d) {
-      return d.keys().hasOnly(['type', 'amountCents', 'date', 'cat', 'acct', 'to', 'note', 'by', 'createdAt', 'updatedAt', 'updatedBy', 'rec', 'order', 'photos', 'desc'])
+      return d.keys().hasOnly(['type', 'amountCents', 'date', 'cat', 'acct', 'to', 'note', 'by', 'createdAt', 'updatedAt', 'updatedBy', 'rec', 'order', 'photos', 'desc', 'toWho'])
         && (d.get('rec', null) == null || shortStr(d.rec, 60))
         && (d.get('order', null) == null || d.order is number)
         && (d.get('photos', 0) is int && d.get('photos', 0) >= 0 && d.get('photos', 0) <= 3)
         && shortStr(d.get('desc', ''), 200)
+        // A transfer sent to another family member names them (their user id); only transfers can.
+        && (d.get('toWho', null) == null || (d.type == 'transfer' && shortStr(d.toWho, 128)))
         && d.keys().hasAll(['type', 'amountCents', 'date', 'cat', 'acct', 'by', 'createdAt'])
         && d.type in ['expense', 'income', 'transfer']
         && d.amountCents is int && d.amountCents > 0 && d.amountCents <= 100000000000

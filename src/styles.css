@@ -276,6 +276,12 @@ body.moving-entry, body.moving-entry * { cursor: grabbing; }
 .field { display: grid; gap: 6px; min-width: 0; }
 .field > span { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.07em; }
 .field input, .field select { width: 100%; min-width: 0; border: 1px solid var(--line); background: var(--surface); border-radius: 10px; padding: 9px 10px; }
+/* Transfer "To": who gets the money (avatars), then which of their accounts. */
+.to-who { display: flex; flex-wrap: wrap; gap: 8px; }
+.to-who[hidden] { display: none; }
+.to-who button { display: inline-flex; align-items: center; gap: 8px; padding: 5px 14px 5px 6px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); font-weight: 600; font-size: 14px; }
+.to-who button[aria-checked="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+.to-who .av { width: 26px; height: 26px; }
 .field > label { font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.07em; }
 /* Note with the paperclip button beside it; receipt photos as thumbnails underneath. */
 .note-row { display: flex; gap: 8px; align-items: stretch; }

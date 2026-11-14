@@ -268,6 +268,13 @@ test("editors can attach up to 3 photos to an entry; viewers and outsiders canno
   await assertFails(setDoc(doc(as("ben"), "households", HID, "config", "e1"), { images: [jpg], updatedAt: 1, updatedBy: "ben" }));
 });
 
+test("a transfer can be sent to another family member; other entries can't name one", async () => {
+  const send = (id, extra) => setDoc(doc(as("ben"), "households", HID, "tx", id), tx("ben", { type: "transfer", cat: "transfer", acct: "gcash", to: "gcash", ...extra }));
+  await assertSucceeds(send("s1", { toWho: "ana" }));
+  await assertFails(send("s2", { toWho: 5 }));
+  await assertFails(setDoc(doc(as("ben"), "households", HID, "tx", "s3"), tx("ben", { toWho: "ana" }))); // an expense
+});
+
 test("an entry with photos can have a short description", async () => {
   await assertSucceeds(setDoc(doc(as("ben"), "households", HID, "tx", "d1"), tx("ben", { photos: 1, desc: "Official receipt" })));
   await assertFails(setDoc(doc(as("ben"), "households", HID, "tx", "d2"), tx("ben", { photos: 1, desc: "x".repeat(201) })));

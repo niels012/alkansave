@@ -137,6 +137,7 @@ function clean(id, d) {
     by: typeof d.by === "string" ? d.by : null,
     createdAt: Number(d.createdAt) || 0, updatedAt: Number(d.updatedAt) || 0,
     updatedBy: typeof d.updatedBy === "string" ? d.updatedBy : null,
+    toWho: d.type === "transfer" && typeof d.toWho === "string" && d.toWho ? d.toWho : null, // sent to another family member
     order: Number.isFinite(d.order) ? d.order : null,
     photos: Number.isInteger(d.photos) && d.photos > 0 ? Math.min(d.photos, MAX_PHOTOS) : 0,
     desc: String(d.desc || "").slice(0, 200) // describes its photos
@@ -409,9 +410,8 @@ function balanceBreakdown() {
   const me = S.demo ? "demo-a" : S.meId || "local";
   const r2 = b => Math.round(b * 100) / 100;
   const cash = r2(flow(countedTx(), "cash"));
-  const myTx = countedTx().filter(t => t.by === me);
   const mine = [...PERSONAL_ACCOUNTS.filter(a => hasAccount(me, a) && !a.owed), ...OLD_ACCOUNTS] // not SPayLater: it's owed
-    .map(a => ({ a, b: r2(flow(myTx, a.k)) }))
+    .map(a => ({ a, b: r2(personFlow(countedTx(), me, a.k)) })) // includes money your partner sent you
     .filter(r => r.b);
   const row = (a, b, tag) => `<div class="bb"><span class="nm">${acctIcon(a)}<span class="bb-n">${esc(a.n)}${tag ? `<span class="bb-tag">${tag}</span>` : ""}</span></span><b class="num ${b < 0 ? "exp" : "inc"}">${peso(b)}</b></div>`;
   const list = (cash ? row(acctOf("cash"), cash, "shared") : "") + mine.map(r => row(r.a, r.b)).join("");
@@ -445,7 +445,7 @@ const CHECK_ICON = `<svg class="ok" viewBox="0 0 24 24" aria-hidden="true"><path
 const CLIP_ICON = `<svg class="tx-clip" viewBox="0 0 24 24" role="img" aria-label="Has a photo"><path d="M20 11.5l-7.8 7.8a5 5 0 0 1-7.1-7.1l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8"/></svg>`;
 function txRow(t) {
   const c = catOf(t.type, t.cat);
-  const acct = t.type === "transfer" ? `${acctOf(t.acct).n} → ${acctOf(t.to).n}` : acctOf(t.acct).n;
+  const acct = t.type === "transfer" ? `${acctOf(t.acct).n} → ${toName(t)}${acctOf(t.to).n}` : acctOf(t.acct).n;
   const cls = t.type === "income" ? "inc" : t.type === "expense" ? "exp" : "";
   const ro = !(S.demo || S.canWrite);
   const id = esc(t.id);
@@ -607,7 +607,7 @@ function viewStats() {
   // Each category opens to list its entries this month (newest first).
   const entries = k => mt.filter(t => t.cat === k).sort(newestDayFirst).map(t => {
     const d = new Date(t.date + "T00:00:00");
-    const acct = t.type === "transfer" ? `${acctOf(t.acct).n} → ${acctOf(t.to).n}` : acctOf(t.acct).n;
+    const acct = t.type === "transfer" ? `${acctOf(t.acct).n} → ${toName(t)}${acctOf(t.to).n}` : acctOf(t.acct).n;
     return `<div class="ctx"><span class="ctx-d"><b>${d.getDate()}</b>${d.toLocaleDateString("en-PH", { weekday: "short" })}</span>
       <span class="ctx-m"><span class="t">${esc(t.note || catOf(t.type, t.cat).n)}</span><span class="s">${esc(acct)} · ${esc(who(t.by).name)}</span></span>
       <span class="num ${type === "income" ? "inc" : "exp"}">${peso(t.amount)}</span></div>`;
@@ -779,9 +779,23 @@ function hasAccount(owner, a) {
   const m = S.user.members().find(x => x.id === owner);
   return !!m && m.role === "owner";
 }
-// A person's balance in one of their own accounts: their starting amount plus the entries they logged.
+// Who a transfer's money went to: the person it was sent to ("toWho"), or whoever logged it (between their own accounts).
+const receiver = t => t.toWho || t.by;
+// Money in and out of a person's own account k: the entries they logged, plus transfers others sent them.
+// Their transfer to someone else takes money out of their account but puts it into the other person's.
+const personFlow = (list, owner, k) => list.reduce((a, t) => {
+  const mine = t.by === owner;
+  if (mine && t.type === "income" && t.acct === k) return a + t.amount;
+  if (mine && t.type === "expense" && t.acct === k) return a - t.amount;
+  if (t.type === "transfer") {
+    if (mine && t.acct === k) a -= t.amount;
+    if (t.to === k && receiver(t) === owner) a += t.amount;
+  }
+  return a;
+}, 0);
+// A person's balance in one of their own accounts: their starting amount plus their entries and transfers to them.
 function personalBalance(owner, k) {
-  return (startsOf(owner)[k] || 0) + flow(countedTx().filter(t => t.by === owner), k);
+  return (startsOf(owner)[k] || 0) + personFlow(countedTx(), owner, k);
 }
 const SHARED_BADGE = `<span class="av shared-av" aria-hidden="true">👪</span>`;
 // Column heading: first name ("You" before a name is known).
@@ -887,11 +901,11 @@ function downloadCsv(scope) {
   // Quote text, and stop spreadsheet apps from treating a note like "=SUM(...)" as a formula.
   const cell = v => { let s = String(v ?? ""); if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
   const name = id => (id && S.profiles[id] && S.profiles[id].name) || who(id).name;
-  const lines = [["Date", "Type", "Category", "Amount (PHP)", "Account", "To account", "Note", "Logged by"].join(",")];
+  const lines = [["Date", "Type", "Category", "Amount (PHP)", "Account", "To account", "To person", "Note", "Logged by"].join(",")];
   for (const t of rows) {
     lines.push([
       t.date, t.type[0].toUpperCase() + t.type.slice(1), cell(catOf(t.type, t.cat).n), t.amount.toFixed(2),
-      cell(acctOf(t.acct).n), t.type === "transfer" ? cell(acctOf(t.to).n) : "", cell(t.note), cell(name(t.by))
+      cell(acctOf(t.acct).n), t.type === "transfer" ? cell(acctOf(t.to).n) : "", t.type === "transfer" ? cell(name(receiver(t))) : "", cell(t.note), cell(name(t.by))
     ].join(","));
   }
   const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
@@ -964,6 +978,26 @@ function familySection() {
 
 // ---------- Entry sheet ----------
 const sheet = $("#sheet");
+
+// ---------- Transfer to a family member ----------
+// A transfer's To picker: the person who logs it ("Me" when that's you) or another family member. Sending to
+// someone else lists only their own accounts, not the shared Cash and Atome (money put there wouldn't be theirs).
+// It's saved as the entry's "toWho" and counted in that person's balances (see personFlow).
+let toSender = null, toWho = null; // who logged the transfer, and who gets the money
+const meNow = () => S.demo ? "demo-a" : S.meId || "local";
+const toName = (t, receiverId = receiver(t)) => receiverId !== t.by ? `${firstName(receiverId)}'s ` : ""; // "Shaira's " or ""
+function renderToWho() {
+  const box = $("#f-towho"), people = accountOwners();
+  if (!people.includes(toWho)) people.push(toWho); // someone who has left the family
+  box.hidden = people.length < 2;
+  box.innerHTML = people.map(id => `<button type="button" role="radio" data-act="to-who" data-who="${esc(id)}" aria-checked="${id === toWho}">${avatar(id, true)}<span>${id === meNow() ? "Me" : esc(firstName(id))}</span></button>`).join("");
+  fillTo();
+}
+function fillTo() {
+  const sel = $("#f-to"), keep = sel.value, other = toWho !== toSender;
+  sel.innerHTML = ACCOUNTS.filter(a => hasAccount(toWho, a) && !(other && a.shared)).map(a => `<option value="${a.k}">${esc(a.n)}</option>`).join("");
+  if ([...sel.options].some(o => o.value === keep)) sel.value = keep;
+}
 function fillAccounts() {
   const me = S.demo ? "demo-a" : S.meId || "local";
   const opts = ACCOUNTS.filter(a => hasAccount(me, a)).map(a => `<option value="${a.k}">${esc(a.n)}</option>`).join("");
@@ -1048,6 +1082,9 @@ function openSheet(t) {
   $("#f-date").value = t ? t.date : defDate;
   fillAccounts();
   pickAccount($("#f-acct"), t ? t.acct : "cash");
+  toSender = t ? t.by : meNow();
+  toWho = t && t.toWho ? t.toWho : toSender;
+  renderToWho();
   pickAccount($("#f-to"), t && t.to ? t.to : "maribank");
   $("#f-note").value = t ? t.note : "";
   const meta = $("#f-meta");
@@ -1273,7 +1310,8 @@ sheet.addEventListener("submit", async e => {
   if (S.editingRec) { saveRecurringEdit(type, amount, catEl); return; }
   if (!(amount > 0) || amount > 1e9) { err.textContent = "Enter an amount greater than ₱0."; $("#f-amount").focus(); return; }
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { err.textContent = "Pick a date for this entry."; return; }
-  if (type === "transfer" && acct === to) { err.textContent = "Choose two different accounts for a transfer."; return; }
+  const toOther = type === "transfer" && toWho !== toSender; // sent to another family member
+  if (type === "transfer" && acct === to && !toOther) { err.textContent = "Choose two different accounts for a transfer."; return; }
   if (type !== "transfer" && !catEl) { err.textContent = "Pick a category."; showCats(true); return; }
   const prev = S.editing ? txAll().find(t => t.id === S.editing) : null;
   const me = S.demo ? "demo-a" : S.meId;
@@ -1281,6 +1319,7 @@ sheet.addEventListener("submit", async e => {
     type, amount: Math.round(amount * 100) / 100, date,
     cat: type === "transfer" ? "transfer" : catEl.value, acct, to: type === "transfer" ? to : null,
     note: $("#f-note").value.trim().slice(0, 120),
+    ...(toOther ? { toWho } : {}),
     by: prev ? prev.by : me, createdAt: prev ? prev.createdAt : Date.now(),
     updatedAt: prev ? Date.now() : 0, updatedBy: prev ? me : null,
     ...(prev && prev.order != null && prev.date === date ? { order: prev.order } : {}) // keeps its place unless its day changes
@@ -1294,7 +1333,7 @@ sheet.addEventListener("submit", async e => {
   if (S.view === "calendar") S.selDay = data.date;
   // Confirmation banner, e.g. "✓ ₱145 expense added · Groceries · Cash".
   const repeats = !prev && type !== "transfer" && $("#f-repeat").checked;
-  const where = type === "transfer" ? `${acctOf(acct).n} → ${acctOf(to).n}` : `${catOf(type, data.cat).n} · ${acctOf(acct).n}`;
+  const where = type === "transfer" ? `${acctOf(acct).n} → ${toName(data, toWho)}${acctOf(to).n}` : `${catOf(type, data.cat).n} · ${acctOf(acct).n}`;
   const saved = prev ? "✓ Entry updated"
     : `✓ ${peso(data.amount)} ${type} added · ${where}${repeats ? ` · repeats on the ${repeatLabel(chosenPattern())}` : ""}`;
   // The check card the saving card turns into, e.g. "Expense added / ₱1 / Other · Cash".
@@ -1916,6 +1955,12 @@ document.addEventListener("click", e => {
   else if (act === "attach-cam") { $("#attachMenu").hidden = true; $("#f-cam").click(); }
   else if (act === "attach-pick") { $("#attachMenu").hidden = true; $("#f-file").click(); }
   else if (act === "interest") askInterest();
+  else if (act === "to-who") {
+    toWho = a.dataset.who;
+    $("#f-err").textContent = "";
+    $("#f-towho").querySelectorAll("[data-who]").forEach(b => b.setAttribute("aria-checked", String(b.dataset.who === toWho)));
+    fillTo();
+  }
   else if (act === "photo-remove") { photoForm.list.splice(Number(a.dataset.i), 1); photoForm.changed = true; renderPhotos(); }
   else if (act === "photo-view") viewPhoto(photoForm.list[Number(a.dataset.i)]);
   else if (act === "cat-toggle") showCats($("#f-cats").hidden);
