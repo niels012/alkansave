@@ -268,6 +268,15 @@ test("editors can attach up to 3 photos to an entry; viewers and outsiders canno
   await assertFails(setDoc(doc(as("ben"), "households", HID, "config", "e1"), { images: [jpg], updatedAt: 1, updatedBy: "ben" }));
 });
 
+test("an editor can log an entry for another family member, marked as logged by them", async () => {
+  const add = (who, id, entry) => setDoc(doc(as(who), "households", HID, "tx", id), entry);
+  await assertSucceeds(add("ben", "f1", tx("ana", { loggedBy: "ben" })));       // Ben logs one for Ana
+  await assertFails(add("ben", "f2", tx("ana")));                               // as Ana, without saying so
+  await assertFails(add("ben", "f3", tx("ana", { loggedBy: "ana" })));          // claiming Ana logged it
+  await assertFails(add("ben", "f4", tx("eve", { loggedBy: "ben" })));          // for someone outside the family
+  await assertFails(add("cy", "f5", tx("ana", { loggedBy: "cy" })));            // a viewer can't log at all
+});
+
 test("a transfer can be sent to another family member; other entries can't name one", async () => {
   const send = (id, extra) => setDoc(doc(as("ben"), "households", HID, "tx", id), tx("ben", { type: "transfer", cat: "transfer", acct: "gcash", to: "gcash", ...extra }));
   await assertSucceeds(send("s1", { toWho: "ana" }));

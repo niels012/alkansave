@@ -38,13 +38,14 @@ service cloud.firestore {
     }
 
     function validTx(d) {
-      return d.keys().hasOnly(['type', 'amountCents', 'date', 'cat', 'acct', 'to', 'note', 'by', 'createdAt', 'updatedAt', 'updatedBy', 'rec', 'order', 'photos', 'desc', 'toWho'])
+      return d.keys().hasOnly(['type', 'amountCents', 'date', 'cat', 'acct', 'to', 'note', 'by', 'createdAt', 'updatedAt', 'updatedBy', 'rec', 'order', 'photos', 'desc', 'toWho', 'loggedBy'])
         && (d.get('rec', null) == null || shortStr(d.rec, 60))
         && (d.get('order', null) == null || d.order is number)
         && (d.get('photos', 0) is int && d.get('photos', 0) >= 0 && d.get('photos', 0) <= 3)
         && shortStr(d.get('desc', ''), 200)
         // A transfer sent to another family member names them (their user id); only transfers can.
         && (d.get('toWho', null) == null || (d.type == 'transfer' && shortStr(d.toWho, 128)))
+        && (d.get('loggedBy', null) == null || shortStr(d.loggedBy, 128))
         && d.keys().hasAll(['type', 'amountCents', 'date', 'cat', 'acct', 'by', 'createdAt'])
         && d.type in ['expense', 'income', 'transfer']
         && d.amountCents is int && d.amountCents > 0 && d.amountCents <= 100000000000
@@ -157,8 +158,12 @@ service cloud.firestore {
 
       match /tx/{id} {
         allow read: if isMember(hid);
+        // Your own entry, a recurring bill's, or one you log for another member of this family book
+        // (it's theirs, and records that you entered it).
         allow create: if canWrite(hid) && validTx(request.resource.data)
-          && (request.resource.data.by == me() || postedForRecurring(hid, request.resource.data));
+          && (request.resource.data.by == me() || postedForRecurring(hid, request.resource.data)
+            || (request.resource.data.get('loggedBy', null) == me()
+              && exists(/databases/$(database)/documents/households/$(hid)/members/$(request.resource.data.by))));
         // An edit is signed by whoever made it; moving an entry within its day changes only its order.
         allow update: if canWrite(hid) && validTx(request.resource.data) && (
           (request.resource.data.by == resource.data.by

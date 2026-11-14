@@ -138,6 +138,7 @@ function clean(id, d) {
     createdAt: Number(d.createdAt) || 0, updatedAt: Number(d.updatedAt) || 0,
     updatedBy: typeof d.updatedBy === "string" ? d.updatedBy : null,
     toWho: d.type === "transfer" && typeof d.toWho === "string" && d.toWho ? d.toWho : null, // sent to another family member
+    loggedBy: typeof d.loggedBy === "string" && d.loggedBy ? d.loggedBy : null, // entered by someone else for "by"
     order: Number.isFinite(d.order) ? d.order : null,
     photos: Number.isInteger(d.photos) && d.photos > 0 ? Math.min(d.photos, MAX_PHOTOS) : 0,
     desc: String(d.desc || "").slice(0, 200) // describes its photos
@@ -998,8 +999,30 @@ function fillTo() {
   sel.innerHTML = ACCOUNTS.filter(a => hasAccount(toWho, a) && !(other && a.shared)).map(a => `<option value="${a.k}">${esc(a.n)}</option>`).join("");
   if ([...sel.options].some(o => o.value === keep)) sel.value = keep;
 }
+// ---------- Logging an entry for a family member ----------
+// A new entry's For picker: Me, or another family member (e.g. Shaira paid from her GCash and asked you to log it).
+// It's saved as theirs ("by": it counts in their balances and spending) with "loggedBy" saying you entered it.
+// Picking them lists their accounts, makes them the sender of a transfer, and hides Repeat every month (a repeating
+// bill belongs to whoever sets it up). Only for new entries: an entry's owner doesn't change when it's edited.
+let forWho = null; // whose new entry this is
+const forOther = () => forWho !== meNow();
+function renderFor() {
+  const people = accountOwners();
+  $("#forWrap").hidden = !!S.editing || !!S.editingRec || people.length < 2 || !(S.demo || S.canWrite);
+  $("#f-for").innerHTML = people.map(id => `<button type="button" role="radio" data-act="for-who" data-who="${esc(id)}" aria-checked="${id === forWho}">${avatar(id, true)}<span>${id === meNow() ? "Me" : esc(firstName(id))}</span></button>`).join("");
+}
+function applyFor() {
+  const sel = $("#f-acct"), keep = sel.value;
+  fillAccounts();
+  if ([...sel.options].some(o => o.value === keep)) sel.value = keep;
+  if (toWho === toSender) toWho = forWho; // a transfer between their own accounts stays that way
+  toSender = forWho;
+  renderToWho();
+  setType(sheet.dataset.type); // shows or hides Repeat every month
+  $("#f-for").querySelectorAll("[data-who]").forEach(b => b.setAttribute("aria-checked", String(b.dataset.who === forWho)));
+}
 function fillAccounts() {
-  const me = S.demo ? "demo-a" : S.meId || "local";
+  const me = forWho || meNow(); // the accounts of whoever the entry is for
   const opts = ACCOUNTS.filter(a => hasAccount(me, a)).map(a => `<option value="${a.k}">${esc(a.n)}</option>`).join("");
   $("#f-acct").innerHTML = opts; $("#f-to").innerHTML = opts;
   $("#f-day").innerHTML = Array.from({ length: 31 }, (_, i) => `<option value="${i + 1}">${repeatLabel({ day: i + 1 })}</option>`).join("");
@@ -1058,9 +1081,11 @@ function setType(type, sel) {
   const tr = type === "transfer";
   $("#catWrap").hidden = tr; $("#toWrap").hidden = !tr;
   $("#acctLabel").textContent = tr ? "From account" : "Account";
-  $("#repeatWrap").hidden = tr || !!S.editing || !!S.editingRec || S.demo;
+  $("#repeatWrap").hidden = tr || !!S.editing || !!S.editingRec || S.demo || forOther();
+  if ($("#repeatWrap").hidden) $("#f-repeat").checked = false;
   syncRepeat();
-  if (!tr) renderCats(type, sel); // no default: a new entry starts with "Choose a category"
+  const keepCat = sel === undefined && sheet.querySelector('input[name="cat"]:checked'); // re-run (For changed): keep the category
+  if (!tr) renderCats(type, keepCat ? keepCat.value : sel); // no default: a new entry starts with "Choose a category"
 }
 // The sheet edits either an entry (date) or a recurring item (when it repeats; no transfers).
 function setSheetMode(rec) {
@@ -1077,6 +1102,8 @@ function openSheet(t) {
   const defDate = S.view === "calendar" ? S.selDay : (today.slice(0, 7) === S.month ? today : `${S.month}-01`);
   $("#f-repeat").checked = false;
   $("#f-rep").dataset.date = "";
+  forWho = t ? t.by : meNow();
+  renderFor();
   setType(t ? t.type : "expense", t ? t.cat : null);
   $("#f-amount").value = t ? grouped(t.amount) : "";
   $("#f-date").value = t ? t.date : defDate;
@@ -1088,7 +1115,7 @@ function openSheet(t) {
   pickAccount($("#f-to"), t && t.to ? t.to : "maribank");
   $("#f-note").value = t ? t.note : "";
   const meta = $("#f-meta");
-  if (t) { meta.hidden = false; meta.textContent = `Logged by ${who(t.by).name}${t.createdAt ? " · " + ago(t.createdAt) : ""}${t.updatedAt && t.updatedBy ? ` · last edited by ${who(t.updatedBy).name}` : ""}`; }
+  if (t) { meta.hidden = false; meta.textContent = `Logged by ${t.loggedBy && t.loggedBy !== t.by ? `${who(t.loggedBy).name} for ${who(t.by).name}` : who(t.by).name}${t.createdAt ? " · " + ago(t.createdAt) : ""}${t.updatedAt && t.updatedBy ? ` · last edited by ${who(t.updatedBy).name}` : ""}`; }
   else meta.hidden = true;
   loadPhotos(t);
   showSheet();
@@ -1098,6 +1125,7 @@ function openSheet(t) {
 }
 function openRecSheet(r) {
   S.editing = null; S.editingRec = r.id; S.delArmed = false;
+  forWho = meNow(); $("#forWrap").hidden = true;
   setSheetMode(true);
   $("#sheetTitle").textContent = "Edit recurring";
   $("#f-err").textContent = "";
@@ -1320,7 +1348,9 @@ sheet.addEventListener("submit", async e => {
     cat: type === "transfer" ? "transfer" : catEl.value, acct, to: type === "transfer" ? to : null,
     note: $("#f-note").value.trim().slice(0, 120),
     ...(toOther ? { toWho } : {}),
-    by: prev ? prev.by : me, createdAt: prev ? prev.createdAt : Date.now(),
+    // Yours, or (new, For someone else) theirs, noting that you logged it.
+    by: prev ? prev.by : forWho, ...(!prev && forOther() ? { loggedBy: me } : prev && prev.loggedBy ? { loggedBy: prev.loggedBy } : {}),
+    createdAt: prev ? prev.createdAt : Date.now(),
     updatedAt: prev ? Date.now() : 0, updatedBy: prev ? me : null,
     ...(prev && prev.order != null && prev.date === date ? { order: prev.order } : {}) // keeps its place unless its day changes
   };
@@ -1955,6 +1985,7 @@ document.addEventListener("click", e => {
   else if (act === "attach-cam") { $("#attachMenu").hidden = true; $("#f-cam").click(); }
   else if (act === "attach-pick") { $("#attachMenu").hidden = true; $("#f-file").click(); }
   else if (act === "interest") askInterest();
+  else if (act === "for-who") { forWho = a.dataset.who; $("#f-err").textContent = ""; applyFor(); }
   else if (act === "to-who") {
     toWho = a.dataset.who;
     $("#f-err").textContent = "";
