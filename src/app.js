@@ -595,12 +595,138 @@ function donut(parts, total, label, open) {
     <text x="80" y="95" text-anchor="middle" style="fill:var(--ink)" font-size="16" class="donut-mid">${esc(peso(total))}</text></svg>`;
 }
 
+// ---------- Line charts ----------
+// A small line chart (one peso axis, months along the bottom): 2px lines, 8px points with a surface ring, a legend
+// above, the latest value labelled at each line's end, and a crosshair + readout on tap or hover. Colours are the
+// app's income / expense / accent hues (--chart-*: dark mode uses deeper steps, checked with the dataviz
+// validator); red and green are a close pair for colour-blind readers, so the second series is also dashed.
+// Every chart has a hidden table of the same numbers for screen readers.
+const LC = { W: 340, H: 176, L: 46, R: 60, T: 10, B: 24 };
+const pesoShort = v => { const a = Math.abs(v), s = v < 0 ? "-" : ""; return a >= 1e6 ? `${s}₱${+(a / 1e6).toFixed(a >= 1e7 ? 0 : 1)}M` : a >= 1e3 ? `${s}₱${+(a / 1e3).toFixed(a >= 1e4 ? 0 : 1)}k` : `${s}₱${Math.round(a)}`; };
+const niceStep = range => { const raw = range / 3, p = 10 ** Math.floor(Math.log10(raw || 1)), f = raw / p; return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 5 ? 5 : 10) * p; };
+const monthShort = m => { const [y, mo] = m.split("-").map(Number); return new Date(y, mo - 1, 1).toLocaleDateString("en-PH", { month: "short" }); };
+// points: [{ x: label under the axis ("" for none), tip: heading of its readout }];
+// series: [{ name, key ("inc" | "exp" | "net"), values, dash }], one value per point.
+// With many points (days) the dots only show for the point being read.
+function lineChart(title, points, series, { note = "", head = "" } = {}) {
+  const { W, H, L, R, T, B } = LC, n = points.length, quiet = n > 12 ? " quiet" : "";
+  const all = series.flatMap(s => s.values);
+  let lo = Math.min(0, ...all), hi = Math.max(0, ...all);
+  if (hi === lo) hi = lo + 1000;
+  const step = niceStep(hi - lo);
+  lo = Math.floor(lo / step) * step; hi = Math.ceil(hi / step) * step;
+  const x = i => L + (n === 1 ? (W - L - R) / 2 : i * (W - L - R) / (n - 1));
+  const y = v => T + (hi - v) / (hi - lo) * (H - T - B);
+  const ticks = []; for (let v = lo; v <= hi + step / 2; v += step) ticks.push(v);
+  const grid = ticks.map(v => `<line class="lc-grid${v === 0 ? " zero" : ""}" x1="${L}" x2="${W - R + 6}" y1="${y(v).toFixed(1)}" y2="${y(v).toFixed(1)}"/><text class="lc-y" x="${L - 6}" y="${(y(v) + 4).toFixed(1)}">${esc(pesoShort(v))}</text>`).join("");
+  const xs = points.map((p, i) => p.x ? `<text class="lc-x" x="${x(i).toFixed(1)}" y="${H - 6}">${esc(p.x)}</text>` : "").join("");
+  const lines = series.map(s => {
+    const pts = s.values.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+    return `<polyline class="lc-line lc-${s.key}${s.dash ? " dash" : ""}" points="${pts}"/>`
+      + s.values.map((v, i) => `<circle class="lc-dot lc-${s.key}${quiet}" cx="${x(i).toFixed(1)}" cy="${y(v).toFixed(1)}" r="4" data-i="${i}"/>`).join("");
+  }).join("");
+  // The latest value at each line's end, nudged apart so they never overlap (text in ink, not the series colour).
+  const ends = series.map(s => ({ s, at: y(s.values[n - 1]) })).sort((a, b) => a.at - b.at);
+  for (let i = 1; i < ends.length; i++) ends[i].at = Math.max(ends[i].at, ends[i - 1].at + 13);
+  // …and if that pushes the lowest one onto the axis labels, move the stack up instead.
+  const floor = H - B - 4;
+  for (let i = ends.length - 1; i >= 0; i--) ends[i].at = Math.min(ends[i].at, i === ends.length - 1 ? floor : ends[i + 1].at - 13);
+  const endLabels = ends.map(e => `<text class="lc-end" x="${(x(n - 1) + 8).toFixed(1)}" y="${(e.at + 4).toFixed(1)}">${esc(pesoShort(e.s.values[n - 1]))}</text>`).join("");
+  const legend = series.map(s => `<span class="lc-key"><svg viewBox="0 0 22 8" aria-hidden="true"><line class="lc-line lc-${s.key}${s.dash ? " dash" : ""}" x1="1" x2="21" y1="4" y2="4"/></svg>${esc(s.name)}</span>`).join("");
+  const tips = points.map((p, i) => ({ m: p.tip, rows: series.map(s => [s.name, peso(s.values[i]), s.key, !!s.dash]) }));
+  const table = `<table class="sr-only"><caption>${esc(title)}</caption><tr><th>When</th>${series.map(s => `<th>${esc(s.name)}</th>`).join("")}</tr>`
+    + points.map((p, i) => `<tr><th>${esc(p.tip)}</th>${series.map(s => `<td>${esc(peso(s.values[i]))}</td>`).join("")}</tr>`).join("") + `</table>`;
+  return `<section class="card lc" data-tips="${esc(JSON.stringify(tips))}" data-n="${n}"><div class="lc-head"><span class="label">${esc(title)}</span>${head}</div>
+    <div class="lc-legend">${legend}</div>
+    <div class="lc-plot"><svg viewBox="0 0 ${W} ${H}" role="img" aria-label="${esc(title)}, line chart; the numbers are in the table that follows">${grid}${xs}
+      <line class="lc-cross" x1="0" x2="0" y1="${T}" y2="${H - B}" visibility="hidden"/>${lines}${endLabels}</svg>
+      <div class="lc-tip" hidden></div></div>${note ? `<p class="meta">${esc(note)}</p>` : ""}${table}</section>`;
+}
+// Tap or hover: the crosshair snaps to the nearest point and the readout lists every line there.
+function chartPoint(plot, clientX) {
+  const card = plot.closest(".lc"), n = Number(card.dataset.n), svg = plot.querySelector("svg"), r = svg.getBoundingClientRect();
+  const { W, L, R } = LC, px = (clientX - r.left) * W / r.width;
+  const i = n === 1 ? 0 : Math.max(0, Math.min(n - 1, Math.round((px - L) / ((W - L - R) / (n - 1)))));
+  const cx = n === 1 ? L + (W - L - R) / 2 : L + i * (W - L - R) / (n - 1);
+  const cross = svg.querySelector(".lc-cross");
+  cross.setAttribute("x1", cx); cross.setAttribute("x2", cx); cross.setAttribute("visibility", "visible");
+  svg.querySelectorAll(".lc-dot").forEach(d => d.classList.toggle("on", Number(d.dataset.i) === i));
+  const t = JSON.parse(card.dataset.tips)[i], tip = plot.querySelector(".lc-tip");
+  tip.innerHTML = `<b>${esc(t.m)}</b>` + t.rows.map(([name, v, key, dash]) => `<span><svg viewBox="0 0 16 8" aria-hidden="true"><line class="lc-line lc-${key}${dash ? " dash" : ""}" x1="1" x2="15" y1="4" y2="4"/></svg>${esc(name)}<b class="num">${esc(v)}</b></span>`).join("");
+  tip.hidden = false;
+  const left = cx * r.width / W, tw = tip.offsetWidth; // beside the crosshair, on whichever side has room
+  tip.style.left = `${left + 12 + tw > r.width ? Math.max(0, left - 12 - tw) : left + 12}px`;
+}
+function chartOff(plot) {
+  plot.querySelector(".lc-cross").setAttribute("visibility", "hidden");
+  plot.querySelectorAll(".lc-dot.on").forEach(d => d.classList.remove("on"));
+  plot.querySelector(".lc-tip").hidden = true;
+}
+$("#main").addEventListener("pointermove", e => { const p = e.target.closest && e.target.closest(".lc-plot"); if (p) chartPoint(p, e.clientX); });
+$("#main").addEventListener("pointerdown", e => { const p = e.target.closest && e.target.closest(".lc-plot"); if (p) chartPoint(p, e.clientX); });
+$("#main").addEventListener("pointerout", e => { const p = e.target.closest && e.target.closest(".lc-plot"); if (p && e.pointerType === "mouse" && !p.contains(e.relatedTarget)) chartOff(p); });
+document.addEventListener("pointerdown", e => { document.querySelectorAll(".lc-plot").forEach(p => { if (!p.contains(e.target)) chartOff(p); }); });
+
+// Up to six months ending with `last`, but not before the month of the first entry ever logged.
+function chartMonths(last) {
+  const first = txAll().reduce((a, t) => (!a || t.date < a ? t.date : a), "").slice(0, 7) || last;
+  const months = [];
+  for (let m = last, i = 0; i < 6 && m >= first; i++, m = shiftMonth(m, -1)) months.unshift(m);
+  return months.length ? months : [last];
+}
+const monthPoint = m => ({ x: monthShort(m), tip: monthLabel(m) });
+// Stats: income and expenses (entries whose day has come), Daily for each day of the month on screen (up to
+// today in this month) or Monthly for up to six months ending with it. The choice is kept while the app is open.
+function incomeExpenseChart() {
+  const by = S.trendBy || "daily", list = countedTx();
+  const sum = (match, type) => list.filter(t => t.type === type && match(t.date)).reduce((a, t) => a + t.amount, 0);
+  const head = `<div class="seg mini" role="group" aria-label="Group by"><button type="button" data-act="trend" data-by="daily" aria-pressed="${by === "daily"}">Daily</button><button type="button" data-act="trend" data-by="monthly" aria-pressed="${by === "monthly"}">Monthly</button></div>`;
+  let points, keys, match, note = "";
+  if (by === "daily") {
+    const today = todayISO(), last = S.month === today.slice(0, 7) ? Number(today.slice(8)) : S.month > today ? 0 : daysIn(S.month);
+    keys = Array.from({ length: Math.max(1, last) }, (_, i) => `${S.month}-${pad(i + 1)}`);
+    // Labels on the 1st and every 5th day, so they never crowd.
+    points = keys.map((d, i) => ({ x: i === 0 || (i + 1) % 5 === 0 ? String(i + 1) : "", tip: new Date(d + "T00:00:00").toLocaleDateString("en-PH", { weekday: "short", month: "short", day: "numeric" }) }));
+    match = k => date => date === k;
+    note = `Each day of ${monthLabel(S.month)}${S.month === today.slice(0, 7) ? ", up to today" : ""}.`;
+  } else {
+    keys = chartMonths(S.month);
+    points = keys.map(monthPoint);
+    match = k => date => date.slice(0, 7) === k;
+    if (keys.length < 2) note = "Earlier months show here as your family keeps logging.";
+  }
+  return lineChart("Income and expenses", points, [
+    { name: "Income", key: "inc", values: keys.map(k => sum(match(k), "income")) },
+    { name: "Expenses", key: "exp", dash: true, values: keys.map(k => sum(match(k), "expense")) }
+  ], { note, head });
+}
+// Accounts: what the family had, owed and was worth at the end of each month (this month: today), worked out the
+// same way as the Assets / Owed / Net totals above it: starting balances plus entries up to that day.
+function totalsAt(cut) {
+  const list = txAll().filter(t => t.date <= cut && !isUpcoming(t)), vals = [];
+  for (const o of accountOwners()) for (const a of [...PERSONAL_ACCOUNTS, ...OLD_ACCOUNTS]) vals.push((startsOf(o)[a.k] || 0) + personFlow(list, o, a.k));
+  const st = sharedStarts();
+  for (const a of SHARED_ACCOUNTS) vals.push((st[a.k] || 0) + flow(list, a.k));
+  const assets = vals.filter(b => b > 0).reduce((s, b) => s + b, 0), owed = -vals.filter(b => b < 0).reduce((s, b) => s + b, 0);
+  return { assets, owed, net: assets - owed };
+}
+function netWorthChart() {
+  const today = todayISO(), months = chartMonths(today.slice(0, 7));
+  const at = months.map(m => totalsAt(m === today.slice(0, 7) ? today : `${m}-${pad(daysIn(m))}`));
+  return lineChart("Assets, owed and net", months.map(monthPoint), [
+    { name: "Assets", key: "inc", values: at.map(t => t.assets) },
+    { name: "Owed", key: "exp", dash: true, values: at.map(t => t.owed) },
+    { name: "Net", key: "net", values: at.map(t => t.net) }
+  ], { note: months.length < 2 ? "Earlier months show here as your family keeps logging." : "End of each month; this month is today." });
+}
+
 function viewStats() {
   const type = S.statType;
   const mt = monthCounted().filter(t => t.type === type);
   const total = mt.reduce((a, t) => a + t.amount, 0);
   const seg = `<div class="bar-row"><div class="seg" role="group" aria-label="Show"><button type="button" data-act="stat" data-type="expense" aria-pressed="${type === "expense"}">Expenses</button><button type="button" data-act="stat" data-type="income" aria-pressed="${type === "income"}">Income</button></div></div>`;
-  if (!mt.length) return seg + `<div class="empty"><h2>No ${type === "expense" ? "expenses" : "income"} in ${esc(monthLabel(S.month))}</h2><p>Stats fill in as your family logs entries.</p></div>`;
+  const trend = txAll().length ? incomeExpenseChart() : ""; // income and expenses over time, last on the tab
+  if (!mt.length) return seg + `<div class="empty"><h2>No ${type === "expense" ? "expenses" : "income"} in ${esc(monthLabel(S.month))}</h2><p>Stats fill in as your family logs entries.</p></div>` + trend;
   const byCat = {};
   mt.forEach(t => byCat[t.cat] = (byCat[t.cat] || 0) + t.amount);
   const parts = Object.entries(byCat).map(([k, v]) => ({ ...catOf(type, k), k, v })).sort((a, b) => b.v - a.v);
@@ -624,7 +750,7 @@ function viewStats() {
   return seg + `<section class="card"><span class="label">By category</span><div class="donut-wrap">${donut(parts, total, `${type} by category`, open)}<div class="legend">${legend}</div></div>
     <p class="meta">Tap a category to see its entries.</p>
     ${S.demo || S.tx.length ? "" : `<button class="link" type="button" data-act="demo">Preview with sample data</button>`}</section>
-    <section class="card"><span class="label">${type === "expense" ? "Who spent" : "Who earned"} · ${esc(monthLabel(S.month))}</span>${whoRows}</section>`;
+    <section class="card"><span class="label">${type === "expense" ? "Who spent" : "Who earned"} · ${esc(monthLabel(S.month))}</span>${whoRows}</section>` + trend;
 }
 
 function viewBudget() {
@@ -851,7 +977,8 @@ function viewAccounts() {
   <p class="meta">Deel is in US dollars and isn't included in the totals.</p>`;
 
   return `<section class="card"><div class="acct-sum"><div><span>Assets</span><b class="num inc">${peso(assets)}</b></div><div><span>Owed</span><b class="num exp">${peso(-liab)}</b></div><div><span>Net</span><b class="num">${peso(assets + liab)}</b></div></div></section>
-    <section class="card"><span class="label">Balances</span>${table}</section>`
+    <section class="card"><span class="label">Balances</span>${table}</section>
+    ${txAll().length ? netWorthChart() : ""}`
     + startSection() + familySection() + exportSection() + installSection();
 }
 
@@ -2082,6 +2209,7 @@ document.addEventListener("click", e => {
   else if (act === "del") deleteEntry();
   else if (act === "day") { S.selDay = a.dataset.date; draw(); }
   else if (act === "stat") { S.statType = a.dataset.type; draw(); }
+  else if (act === "trend") { S.trendBy = a.dataset.by; draw(); }
   else if (act === "stat-cat") {
     // Stats: open a category's entries, or fold the open one shut.
     const k = a.dataset.cat, list = document.querySelector(".cat-tx");
