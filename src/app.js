@@ -1255,14 +1255,79 @@ async function addPhotos(files) {
 }
 
 // A photo full screen; tap anywhere (or Escape) to close. `full` may still be loading: the small copy shows first.
+// The photo can be zoomed even though the app itself can't (see "No zooming"): pinch, double-tap or the mouse
+// wheel zooms the picture up to ZOOM_MAX×, a finger drags it around while zoomed, and a double-tap goes back.
+// × or Escape closes it, and so does a tap beside the photo while it isn't zoomed.
+const ZOOM_MAX = 5, ZOOM_TAP = 2.5, DOUBLE_TAP_MS = 300;
 function viewPhoto(src, full) {
-  const v = document.createElement("button");
-  v.type = "button"; v.className = "viewer"; v.setAttribute("aria-label", "Close photo");
-  v.innerHTML = `<img src="${src}" alt="Receipt photo">`;
-  v.addEventListener("click", () => v.remove());
+  const v = document.createElement("div");
+  v.className = "viewer"; v.setAttribute("role", "dialog"); v.setAttribute("aria-label", "Photo");
+  v.innerHTML = `<img src="${src}" alt="Receipt photo" draggable="false"><button type="button" class="viewer-x" aria-label="Close photo">×</button>`;
+  const img = v.querySelector("img");
+  const close = () => v.remove();
+  let s = 1, tx = 0, ty = 0;
+  const limit = z => Math.min(ZOOM_MAX, Math.max(1, z));
+  // Keeps the zoomed picture from being dragged out of sight; at 1× it sits centred.
+  const fit = () => {
+    if (s <= 1.01) { s = 1; tx = 0; ty = 0; return; }
+    const mx = Math.max(0, (img.offsetWidth * s - v.clientWidth) / 2 + 24), my = Math.max(0, (img.offsetHeight * s - v.clientHeight) / 2 + 24);
+    tx = Math.min(mx, Math.max(-mx, tx)); ty = Math.min(my, Math.max(-my, ty));
+  };
+  const show = () => { img.style.transform = `translate(${tx}px, ${ty}px) scale(${s})`; v.classList.toggle("zoomed", s > 1); };
+  // Zooms to `to` while the spot under (x, y) stays put.
+  const zoomAt = (to, x, y) => {
+    const r = img.getBoundingClientRect(), k = to / s;
+    tx += (x - (r.left + r.width / 2)) * (1 - k); ty += (y - (r.top + r.height / 2)) * (1 - k);
+    s = to; fit(); show();
+  };
+
+  const pts = new Map(); // fingers (or the mouse) on the photo: id → { x, y }
+  let moved = false, lastTap = 0;
+  const pair = () => { const [a, b] = [...pts.values()]; return { d: Math.hypot(a.x - b.x, a.y - b.y), x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 }; };
+  v.addEventListener("pointerdown", e => {
+    if (e.target.closest(".viewer-x")) return;
+    try { v.setPointerCapture(e.pointerId); } catch {}
+    if (!pts.size) moved = false;
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY, x0: e.clientX, y0: e.clientY });
+    if (pts.size > 1) moved = true; // a pinch is never a tap
+    v.classList.add("gesturing");
+  });
+  v.addEventListener("pointermove", e => {
+    const p = pts.get(e.pointerId);
+    if (!p) return;
+    if (pts.size >= 2) {
+      const was = pair();
+      p.x = e.clientX; p.y = e.clientY;
+      const now = pair();
+      if (was.d > 0) zoomAt(limit(s * now.d / was.d), now.x, now.y);
+      tx += now.x - was.x; ty += now.y - was.y; fit(); show();
+      return;
+    }
+    const dx = e.clientX - p.x, dy = e.clientY - p.y;
+    p.x = e.clientX; p.y = e.clientY;
+    if (Math.hypot(p.x - p.x0, p.y - p.y0) > 8) moved = true;
+    if (s > 1) { tx += dx; ty += dy; fit(); show(); }
+  });
+  const lift = e => {
+    const p = pts.get(e.pointerId);
+    if (!p) return;
+    pts.delete(e.pointerId);
+    if (pts.size) return;
+    v.classList.remove("gesturing");
+    if (moved || e.type === "pointercancel") return;
+    // A tap: a second one soon after zooms in there (or back out); a single tap beside the photo closes it.
+    const now = Date.now();
+    if (now - lastTap < DOUBLE_TAP_MS) { lastTap = 0; zoomAt(s > 1 ? 1 : ZOOM_TAP, e.clientX, e.clientY); return; }
+    lastTap = now;
+    if (e.target !== img) setTimeout(() => { if (lastTap === now && s === 1) close(); }, DOUBLE_TAP_MS);
+  };
+  v.addEventListener("pointerup", lift);
+  v.addEventListener("pointercancel", lift);
+  v.addEventListener("wheel", e => { e.preventDefault(); zoomAt(limit(s * (e.deltaY < 0 ? 1.2 : 1 / 1.2)), e.clientX, e.clientY); }, { passive: false });
+  v.querySelector(".viewer-x").addEventListener("click", close);
   document.body.append(v);
-  v.focus();
-  if (full) full.then(big => { if (big && v.isConnected) v.querySelector("img").src = big; }).catch(() => {});
+  v.querySelector(".viewer-x").focus();
+  if (full) full.then(big => { if (big && v.isConnected) img.src = big; }).catch(() => {});
 }
 for (const box of [$("#f-file"), $("#f-cam")]) box.addEventListener("change", e => {
   const files = [...e.target.files].filter(x => x.type.startsWith("image/") || !x.type);
