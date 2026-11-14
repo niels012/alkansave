@@ -14,7 +14,7 @@ document.addEventListener("touchmove", e => { if (e.touches.length > 1) e.preven
 // ---------- Reference data ----------
 const CATS = {
   expense: [
-    { k: "tithing", n: "Tithing", e: "🙏", c: "#6366F1" },
+    { k: "tithing", n: "Donation", e: "🙏", c: "#6366F1" }, // was "Tithing"; the key stays so saved entries and limits keep it
     { k: "food", n: "Food", e: "🍜", c: "#FF5A36" },
     { k: "groceries", n: "Groceries", e: "🛒", c: "#22C55E" },
     { k: "transport", n: "Transport", e: "🚌", c: "#3B82F6" },
@@ -234,7 +234,7 @@ function buildDemo() {
     [2, "expense", "groceries", 3860, "card", "b", "Weekly groceries"],
     [2, "expense", "transport", 180, "cash", "a", "Jeep & tricycle"],
     [3, "expense", "food", 265, "gcash", "b", "Merienda with the kids"],
-    [3, "expense", "tithing", 3200, "maribank", "a", "Tithe, Sunday service"],
+    [3, "expense", "tithing", 3200, "maribank", "a", "Sunday service"],
     [4, "expense", "kids", 1450, "gcash", "b", "School project materials"],
     [5, "expense", "bills", 3120, "gcash", "a", "Electric bill"],
     [6, "expense", "groceries", 940, "cash", "b", "Palengke run"],

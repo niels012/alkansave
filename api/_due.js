@@ -5,7 +5,7 @@ import { dueDay } from "../src/schedule.js";
 const CATEGORY = {
   food: "Food", groceries: "Groceries", transport: "Transport", bills: "Bills & Utilities", household: "Household",
   kids: "Kids & School", health: "Health", shopping: "Shopping", leisure: "Leisure", padala: "Padala & Family",
-  tithing: "Tithing", pet: "Pet", other: "Other"
+  tithing: "Donation", pet: "Pet", other: "Other"
 };
 const ACCOUNT = {
   cash: "Cash", gcash: "GCash", gotyme: "GoTyme", maribank: "MariBank", psbank: "PSBank", spaylater: "SPayLater", card: "Atome",
