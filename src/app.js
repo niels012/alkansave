@@ -623,7 +623,7 @@ function viewStats() {
   const whoRows = Object.entries(byWho).sort((a, b) => b[1] - a[1]).map(([id, v]) => `<div class="who-row">${avatar(id === "unknown" ? null : id)}<span class="nm">${esc(who(id === "unknown" ? null : id).name)}</span><span class="num">${peso(v)}</span><div class="meter"><i style="width:${(v / max * 100).toFixed(1)}%;--c:${esc(who(id === "unknown" ? null : id).color)}"></i></div></div>`).join("");
   return seg + `<section class="card"><span class="label">By category</span><div class="donut-wrap">${donut(parts, total, `${type} by category`, open)}<div class="legend">${legend}</div></div>
     <p class="meta">Tap a category to see its entries.</p>
-    ${S.demo ? "" : `<button class="link" type="button" data-act="demo">Preview with sample data</button>`}</section>
+    ${S.demo || S.tx.length ? "" : `<button class="link" type="button" data-act="demo">Preview with sample data</button>`}</section>
     <section class="card"><span class="label">${type === "expense" ? "Who spent" : "Who earned"} · ${esc(monthLabel(S.month))}</span>${whoRows}</section>`;
 }
 
@@ -1150,15 +1150,32 @@ function openRecSheet(r) {
   showSheet();
 }
 // The form blooms out from the bottom centre when shown (CSS on .scrim) and shrinks back into it here.
+// While a box is open over the app (the entry form, the interest box, a photo), the page behind it stays put:
+// scrolling inside the box, or past its end, doesn't scroll the list. The page is pinned where it was and put
+// back on close. Counted, since a photo can open on top of the form.
+let scrollLocks = 0, lockedY = 0;
+function lockScroll() {
+  if (scrollLocks++) return;
+  lockedY = scrollY;
+  Object.assign(document.body.style, { position: "fixed", top: `-${lockedY}px`, left: "0", right: "0", width: "100%" });
+}
+function unlockScroll() {
+  if (!scrollLocks || --scrollLocks) return;
+  Object.assign(document.body.style, { position: "", top: "", left: "", right: "", width: "" });
+  scrollTo(0, lockedY);
+}
+let sheetLocked = false;
 function showSheet() {
   const scrim = $("#scrim");
   scrim.classList.remove("closing");
   scrim.hidden = false;
+  if (!sheetLocked) { sheetLocked = true; lockScroll(); }
 }
 function closeSheet() {
   const scrim = $("#scrim");
   S.editing = null; S.editingRec = null;
   photoForm.token++; // drops photos still loading or shrinking for this form
+  if (sheetLocked) { sheetLocked = false; unlockScroll(); }
   if (scrim.hidden) return;
   const done = () => { if (scrim.classList.contains("closing")) { scrim.classList.remove("closing"); scrim.hidden = true; } };
   if (matchMedia("(prefers-reduced-motion: reduce)").matches) { scrim.hidden = true; }
@@ -1264,7 +1281,8 @@ function viewPhoto(src, full) {
   v.className = "viewer"; v.setAttribute("role", "dialog"); v.setAttribute("aria-label", "Photo");
   v.innerHTML = `<img src="${src}" alt="Receipt photo" draggable="false"><button type="button" class="viewer-x" aria-label="Close photo">×</button>`;
   const img = v.querySelector("img");
-  const close = () => v.remove();
+  const close = () => { if (!v.isConnected) return; v.remove(); unlockScroll(); };
+  lockScroll();
   let s = 1, tx = 0, ty = 0;
   const limit = z => Math.min(ZOOM_MAX, Math.max(1, z));
   // Keeps the zoomed picture from being dragged out of sight; at 1× it sits centred.
@@ -1342,7 +1360,7 @@ document.addEventListener("click", e => {
 // Escape closes an open photo first (and not the form behind it).
 addEventListener("keydown", e => {
   const v = document.querySelector(".viewer");
-  if (e.key === "Escape" && v) { v.remove(); e.stopImmediatePropagation(); }
+  if (e.key === "Escape" && v) { v.querySelector(".viewer-x").click(); e.stopImmediatePropagation(); } // closes it properly
 }, true);
 
 // For saving an entry (id `id`): store, replace or remove its photos, only if they were changed. Called before
@@ -1539,7 +1557,7 @@ function askInterest() {
       : d === 0 ? `Your ${a.n} already matches. There's no interest to add.`
       : `Your ${a.n} in AlkanSave is ${peso(-d)} more than that. An expense or transfer may be missing.`;
   };
-  const close = () => { el.remove(); document.removeEventListener("keydown", onKey, true); };
+  const close = () => { if (!el.isConnected) return; el.remove(); unlockScroll(); document.removeEventListener("keydown", onKey, true); };
   const onKey = e => { if (e.key === "Escape") { e.stopImmediatePropagation(); close(); } };
   input.addEventListener("input", show);
   el.addEventListener("click", e => { if (e.target === el || e.target.closest("[data-close]")) close(); });
@@ -1552,6 +1570,7 @@ function askInterest() {
   });
   document.addEventListener("keydown", onKey, true);
   document.body.append(el);
+  lockScroll();
   input.focus(); // still inside the tap, so phones bring up the number keyboard
 }
 // Saves the interest as a new income entry, with the same saving card and green check as the entry form.
