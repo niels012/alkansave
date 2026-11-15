@@ -995,7 +995,7 @@ function viewAccounts() {
   return `<section class="card"><div class="acct-sum"><div><span>Assets</span><b class="num inc">${peso(assets)}</b></div><div><span>Owed</span><b class="num exp">${peso(-liab)}</b></div><div><span>Net</span><b class="num">${peso(assets + liab)}</b></div></div></section>
     <section class="card"><span class="label">Balances</span>${table}</section>
     ${txAll().length ? netWorthChart() : ""}`
-    + startSection() + familySection() + exportSection() + installSection();
+    + suggestSection() + startSection() + familySection() + exportSection() + installSection();
 }
 
 // Cards on Accounts that fold down to just their heading (Starting balances, Family). They start folded;
@@ -1631,7 +1631,7 @@ sheet.addEventListener("submit", async e => {
     const row = { id: prev ? prev.id : "demo" + Date.now(), photos: 0, desc: "", ...data };
     savePhotos(row.id, false);
     S.demoTx = prev ? S.demoTx.map(t => t.id === prev.id ? row : t) : [...S.demoTx, row];
-    closeSheet(); paint(); showLoader("").done({ ...done, after: () => showEntry(row.id) }); return;
+    closeSheet(); paint(); showLoader("").done({ ...done, after: () => { showEntry(row.id); if (!prev) maybeSuggestTithe(row); } }); return;
   }
   // The form closes right away and a full-screen "Saving your entry…" shows until the save is through.
   // Firestore puts the entry on this phone the moment it's written, then sends it on, which can take seconds
@@ -1655,7 +1655,7 @@ sheet.addEventListener("submit", async e => {
   const uploading = photoForm.changed && photoForm.list.length;
   closeSheet();
   const loader = showLoader("Saving your entry…", uploading ? `Uploading ${uploading} photo${uploading === 1 ? "" : "s"}` : "");
-  Promise.all(writes).then(() => loader.done({ ...done, after: () => showEntry(ref.id) })).catch(x => {
+  Promise.all(writes).then(() => loader.done({ ...done, after: () => { showEntry(ref.id); if (!prev) maybeSuggestTithe(data); } })).catch(x => {
     // Refused (e.g. no longer allowed to edit): the entry drops out of the list again. The form still holds
     // what was typed, so "Try again" brings it back as it was.
     loader.hide();
@@ -1743,6 +1743,74 @@ function askInterest() {
   input.focus(); // still inside the tap, so phones bring up the number keyboard
 }
 // Saves the interest as a new income entry, with the same saving card and green check as the entry form.
+// ---------- Tithing suggestion ----------
+// A switch on Accounts (kept on this phone, off at first). When on, saving a new Salary income (in pesos) is
+// followed by "Set aside 10% for tithing?": Add saves a Donation expense noted "Tithing" (same account, date and
+// person as the salary), Edit opens it in the form first, Not now does nothing.
+const TITHE_KEY = "alkansave.suggestTithe", TITHE_RATE = 0.1;
+const titheOn = () => { try { return localStorage.getItem(TITHE_KEY) === "1"; } catch { return false; } };
+const setTitheOn = on => { try { localStorage.setItem(TITHE_KEY, on ? "1" : "0"); } catch {} flash(on ? "Tithing suggestions are on for this phone." : "Tithing suggestions are off.", 3000); };
+function suggestSection() {
+  if (!(S.demo || S.canWrite)) return "";
+  return `<section class="card"><span class="label">Suggestions</span>
+    <label class="switch-row"><span><b>Suggest tithing after salary</b><span class="meta">After you log a Salary income, offer to set aside 10% as a Donation.</span></span>
+      <input type="checkbox" class="switch" data-pref="tithe"${titheOn() ? " checked" : ""} aria-label="Suggest tithing after salary"></label></section>`;
+}
+function maybeSuggestTithe(income) {
+  if (!titheOn() || income.type !== "income" || income.cat !== "salary" || isUsd(income)) return;
+  const amount = round2(income.amount * TITHE_RATE);
+  if (!(amount > 0)) return;
+  const tithe = {
+    type: "expense", amount, date: income.date, cat: "tithing", acct: income.acct, to: null, note: "Tithing",
+    by: income.by, ...(income.by !== meNow() ? { loggedBy: meNow() } : {}), createdAt: Date.now(), updatedAt: 0, updatedBy: null
+  };
+  const a = acctOf(tithe.acct), c = catOf("expense", "tithing");
+  const el = document.createElement("div");
+  el.className = "ask";
+  el.innerHTML = `<div class="ask-card" role="dialog" aria-modal="true" aria-labelledby="titheTitle">
+      <h2 id="titheTitle"><span class="ico" style="--c:${c.c}" aria-hidden="true">${c.e}</span>Set aside 10% for tithing?</h2>
+      <p><b class="num">${peso(amount)}</b> · ${esc(c.n)} · ${esc(a.n)}${income.by !== meNow() ? ` · for ${esc(firstName(income.by))}` : ""}</p>
+      <p>10% of the ${peso(income.amount)} salary, noted “Tithing”.</p>
+      <div class="actions"><button type="button" class="btn" data-tithe="skip">Not now</button><button type="button" class="btn" data-tithe="edit">Edit</button><button type="button" class="btn primary" data-tithe="add">Add</button></div>
+    </div>`;
+  const close = () => { if (!el.isConnected) return; el.remove(); unlockScroll(); document.removeEventListener("keydown", onKey, true); };
+  const onKey = e => { if (e.key === "Escape") { e.stopImmediatePropagation(); close(); } };
+  el.addEventListener("click", e => {
+    const b = e.target.closest("[data-tithe]");
+    if (!b && e.target !== el) return;
+    close();
+    if (b && b.dataset.tithe === "add") addTithe(tithe);
+    else if (b && b.dataset.tithe === "edit") editTithe(tithe);
+  });
+  document.addEventListener("keydown", onKey, true);
+  document.body.append(el);
+  lockScroll();
+  el.querySelector('[data-tithe="add"]').focus();
+}
+function addTithe(tithe) {
+  const a = acctOf(tithe.acct);
+  const done = { title: "Expense added", amount: peso(tithe.amount), cls: "exp", sub: `${catOf("expense", "tithing").n} · ${a.n}`, text: `✓ ${peso(tithe.amount)} tithing added · ${a.n}` };
+  if (S.demo) {
+    const row = { id: "demo" + Date.now(), photos: 0, desc: "", order: null, ...tithe };
+    S.demoTx = [...S.demoTx, row];
+    paint(); showLoader("").done({ ...done, after: () => showEntry(row.id) }); return;
+  }
+  const ref = S.db.collection("tx").doc();
+  const loader = showLoader("Adding tithing…");
+  writeWithRetry(() => ref.set(tithe)).then(() => loader.done({ ...done, after: () => showEntry(ref.id) })).catch(x => { loader.hide(); flash(writeError(x)); });
+}
+// Edit: the entry form, filled in with the tithing, to change before saving.
+function editTithe(tithe) {
+  openSheet(null);
+  if (tithe.by !== forWho) { forWho = tithe.by; applyFor(); }
+  setType("expense", "tithing");
+  $("#f-amount").value = grouped(tithe.amount);
+  $("#f-date").value = tithe.date;
+  pickAccount($("#f-acct"), tithe.acct);
+  syncCurrency();
+  $("#f-note").value = tithe.note;
+}
+
 function addInterest(amount) {
   const a = acctOf(INTEREST_ACCOUNT), cat = catOf("income", "interest");
   const data = {
@@ -2347,6 +2415,7 @@ $("#main").addEventListener("change", e => {
   const d = e.target.dataset || {};
   if (d.role) S.user.setRole(d.role, e.target.value).catch(() => { flash("Couldn't change their role. Check your connection and try again."); draw(); });
   else if (d.filter) { S.f[d.filter] = e.target.value; draw(); }
+  else if (d.pref === "tithe") setTitheOn(e.target.checked);
 });
 // Budget limits and starting balances save shortly after you stop typing, and again when you leave the box
 // (each save does nothing if the amount hasn't changed). They don't wait for "change": on iPhones it never comes
