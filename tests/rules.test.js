@@ -268,6 +268,14 @@ test("editors can attach up to 3 photos to an entry; viewers and outsiders canno
   await assertFails(setDoc(doc(as("ben"), "households", HID, "config", "e1"), { images: [jpg], updatedAt: 1, updatedBy: "ben" }));
 });
 
+test("Deel income can be in dollars; nothing else can", async () => {
+  const add = (id, extra) => setDoc(doc(as("ben"), "households", HID, "tx", id), tx("ben", extra));
+  await assertSucceeds(add("u1", { type: "income", cat: "salary", acct: "deel", currency: "USD" }));
+  await assertFails(add("u2", { type: "expense", acct: "deel", currency: "USD" }));          // dollar spending
+  await assertFails(add("u3", { type: "income", cat: "salary", acct: "gcash", currency: "USD" })); // dollars into GCash
+  await assertFails(add("u4", { type: "income", cat: "salary", acct: "deel", currency: "EUR" }));
+});
+
 test("an editor can log an entry for another family member, marked as logged by them", async () => {
   const add = (who, id, entry) => setDoc(doc(as(who), "households", HID, "tx", id), entry);
   await assertSucceeds(add("ben", "f1", tx("ana", { loggedBy: "ben" })));       // Ben logs one for Ana

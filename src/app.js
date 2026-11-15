@@ -67,7 +67,7 @@ const ALL_ACCOUNTS = [...ACCOUNTS, ...OLD_ACCOUNTS];
 // Nobody logs entries in it; its balance is typed in under Starting balances.
 const DEEL = { k: "deel", n: "Deel", logo: "/icons/banks/deel.webp", ownerOnly: true };
 const catOf = (type, k) => type === "transfer" ? TRANSFER : (CATS[type] || CATS.expense).find(c => c.k === k) || (type === "income" ? CATS.income.find(c => c.k === "other_in") : CATS.expense.find(c => c.k === "other"));
-const acctOf = k => ALL_ACCOUNTS.find(a => a.k === k) || ACCOUNTS[0];
+const acctOf = k => ALL_ACCOUNTS.find(a => a.k === k) || (k === DEEL.k ? DEEL : ACCOUNTS[0]);
 const acctIcon = a => a.logo
   ? `<span class="ico logo" aria-hidden="true"><img src="${a.logo}" alt="" width="38" height="38"></span>`
   : `<span class="ico" style="--c:${a.c}" aria-hidden="true">${a.e}</span>`;
@@ -122,8 +122,15 @@ const monthTx = () => txAll().filter(t => t.date.slice(0, 7) === S.month);
 // Upcoming entries: dated after today. They show in the list (greyed, under "Upcoming") but aren't counted in any
 // total, balance, budget or stat until their day comes. "Counted" lists are what everything that adds up reads.
 const isUpcoming = t => t.date > todayISO();
-const countedTx = () => txAll().filter(t => !isUpcoming(t));
-const monthCounted = () => monthTx().filter(t => !isUpcoming(t));
+// Deel income is logged in US dollars ("currency": "USD"). There's no exchange rate, so dollar entries stay out
+// of every peso total: they only add to the Deel amount in the Balances table (see deelIncome).
+const isUsd = t => t.currency === "USD";
+const pesoTx = t => !isUsd(t);
+const amountOf = t => isUsd(t) ? usd(t.amount) : peso(t.amount); // "$1,200" or "₱1,200"
+const countedTx = () => txAll().filter(t => !isUpcoming(t) && pesoTx(t));
+const monthCounted = () => monthTx().filter(t => !isUpcoming(t) && pesoTx(t));
+// A person's Deel income so far (dollars whose day has come).
+const deelIncome = owner => txAll().filter(t => isUsd(t) && t.acct === "deel" && t.type === "income" && t.by === owner && !isUpcoming(t)).reduce((a, t) => a + t.amount, 0);
 
 function clean(id, d) {
   if (!d || typeof d !== "object") return null;
@@ -140,6 +147,7 @@ function clean(id, d) {
     toWho: d.type === "transfer" && typeof d.toWho === "string" && d.toWho ? d.toWho : null, // sent to another family member
     loggedBy: typeof d.loggedBy === "string" && d.loggedBy ? d.loggedBy : null, // entered by someone else for "by"
     order: Number.isFinite(d.order) ? d.order : null,
+    currency: d.currency === "USD" ? "USD" : null, // Deel income is in dollars; everything else is pesos
     photos: Number.isInteger(d.photos) && d.photos > 0 ? Math.min(d.photos, MAX_PHOTOS) : 0,
     desc: String(d.desc || "").slice(0, 200) // describes its photos
   };
@@ -436,7 +444,7 @@ function familyCard() {
     const c = catOf(t.type, t.cat);
     const actor = t.updatedAt && t.updatedBy ? t.updatedBy : t.by;
     const verb = t.updatedAt ? "edited" : "added";
-    return `<div><b>${esc(who(actor).name)}</b> ${verb} ${peso(t.amount)} ${esc(c.n.toLowerCase())} · ${ago(t.updatedAt || t.createdAt)}</div>`;
+    return `<div><b>${esc(who(actor).name)}</b> ${verb} ${amountOf(t)} ${esc(c.n.toLowerCase())} · ${ago(t.updatedAt || t.createdAt)}</div>`;
   }).join("");
   const alone = S.user && S.user.members().length <= 1;
   const hint = (!S.demo && S.isOwner && alone) ? `<div class="hint bar-row"><span>Add your family so they can log entries from their own phones.</span><button class="btn" type="button" data-act="invite">Invite family</button></div>` : "";
@@ -465,7 +473,7 @@ function txRow(t) {
     <div class="tx">
       <span class="tx-cat"><span class="e" aria-hidden="true">${c.e}</span><span class="n">${esc(c.n)}</span></span>
       <span class="tx-main"><span class="tx-title"><span class="tx-t">${esc(t.note || c.n)}</span>${t.photos ? CLIP_ICON : ""}</span><span class="tx-sub">${isUpcoming(t) ? `<span class="soon">Upcoming</span> ` : ""}${esc(acct)} · ${esc(who(t.by).name)}</span></span>
-      <span class="num tx-amt ${cls}">${peso(t.amount)}</span>
+      <span class="num tx-amt ${cls}">${amountOf(t)}</span>
     </div>
   </div>`;
 }
@@ -473,8 +481,8 @@ function txRow(t) {
 function dayGroup(date, list, showMonth) {
   const d = new Date(date + "T00:00:00");
   const wd = d.getDay();
-  const inc = list.filter(t => t.type === "income").reduce((a, t) => a + t.amount, 0);
-  const exp = list.filter(t => t.type === "expense").reduce((a, t) => a + t.amount, 0);
+  const inc = list.filter(t => t.type === "income" && pesoTx(t)).reduce((a, t) => a + t.amount, 0);
+  const exp = list.filter(t => t.type === "expense" && pesoTx(t)).reduce((a, t) => a + t.amount, 0);
   return `<section class="day${date > todayISO() ? " later" : ""}"><div class="day-h">
     <span class="day-n num">${d.getDate()}</span>
     <span class="day-w"><span class="wd${wd === 0 ? " sun" : wd === 6 ? " sat" : ""}">${d.toLocaleDateString("en-PH", { weekday: "short" })}</span>${showMonth ? `<span class="my">${pad(d.getMonth() + 1)}.${d.getFullYear()}</span>` : ""}</span>
@@ -509,7 +517,7 @@ const filtering = () => !!S.q.trim() || filterCount() > 0;
 
 function filteredTx() {
   const F = S.f, q = S.q.trim().toLowerCase();
-  const text = t => [t.note, catOf(t.type, t.cat).n, acctOf(t.acct).n, t.to ? acctOf(t.to).n : "", who(t.by).name, String(t.amount), peso(t.amount), t.date]
+  const text = t => [t.note, catOf(t.type, t.cat).n, acctOf(t.acct).n, t.to ? acctOf(t.to).n : "", who(t.by).name, String(t.amount), amountOf(t), t.date]
     .join(" ").toLowerCase();
   return (F.scope === "all" ? txAll() : monthTx()).filter(t =>
     (!F.type || t.type === F.type) && (!F.cat || t.cat === F.cat) && (!F.who || t.by === F.who)
@@ -538,7 +546,7 @@ function searchResults() {
     return `<div class="empty"><h2>No matching entries</h2><p>Nothing in ${esc(where)} matches ${q ? `“${esc(q)}”` : "these filters"}.</p>
       ${S.f.scope === "month" ? `<button class="btn" type="button" data-act="scope" data-scope="all">Search all time</button>` : ""}</div>`;
   }
-  const now = list.filter(t => !isUpcoming(t)); // the totals leave out upcoming entries, like everywhere else
+  const now = list.filter(t => !isUpcoming(t) && pesoTx(t)); // the totals leave out upcoming and dollar entries, like everywhere else
   const out = now.filter(t => t.type === "expense").reduce((a, t) => a + t.amount, 0);
   const inc = now.filter(t => t.type === "income").reduce((a, t) => a + t.amount, 0);
   const byDay = {};
@@ -576,8 +584,8 @@ function calendar(mt) {
   for (let d = 1; d <= n; d++) {
     const date = `${S.month}-${pad(d)}`;
     const list = mt.filter(t => t.date === date);
-    const inc = list.filter(t => t.type === "income").reduce((a, t) => a + t.amount, 0);
-    const exp = list.filter(t => t.type === "expense").reduce((a, t) => a + t.amount, 0);
+    const inc = list.filter(t => t.type === "income" && pesoTx(t)).reduce((a, t) => a + t.amount, 0);
+    const exp = list.filter(t => t.type === "expense" && pesoTx(t)).reduce((a, t) => a + t.amount, 0);
     cells += `<button type="button" class="cell${date === today ? " today" : ""}${date > today ? " later" : ""}" data-act="day" data-date="${date}" aria-pressed="${date === S.selDay}" aria-label="${d} ${esc(monthLabel(S.month))}${exp ? ", spent " + peso(exp) : ""}">
       <span class="d num">${d}</span>${inc ? `<span class="v num inc">${peso(inc)}</span>` : ""}${exp ? `<span class="v num exp">${peso(exp)}</span>` : ""}</button>`;
   }
@@ -972,7 +980,7 @@ function viewAccounts() {
   ].join("");
 
   // Each person's Deel balance in dollars, below Net and outside every total above.
-  const deel = owners.map(o => startsOf(o).deel || 0);
+  const deel = owners.map(o => (startsOf(o).deel || 0) + deelIncome(o)); // the Deel amount under Starting balances, plus Deel income logged since
   const deelRow = `<tr class="usd">${name(DEEL)}${deel.map((b, i) => cell(owners[i], DEEL, b, v => `<span class="num">${usd(v)}</span>`)).join("")}<td class="tot"><span class="num">${usd(deel.reduce((s, b) => s + b, 0))}</span></td></tr>`;
 
   const table = `<div class="bal-wrap"><table class="bal-table">
@@ -1036,10 +1044,10 @@ function downloadCsv(scope) {
   // Quote text, and stop spreadsheet apps from treating a note like "=SUM(...)" as a formula.
   const cell = v => { let s = String(v ?? ""); if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
   const name = id => (id && S.profiles[id] && S.profiles[id].name) || who(id).name;
-  const lines = [["Date", "Type", "Category", "Amount (PHP)", "Account", "To account", "To person", "Note", "Logged by"].join(",")];
+  const lines = [["Date", "Type", "Category", "Amount", "Currency", "Account", "To account", "To person", "Note", "Logged by"].join(",")];
   for (const t of rows) {
     lines.push([
-      t.date, t.type[0].toUpperCase() + t.type.slice(1), cell(catOf(t.type, t.cat).n), t.amount.toFixed(2),
+      t.date, t.type[0].toUpperCase() + t.type.slice(1), cell(catOf(t.type, t.cat).n), t.amount.toFixed(2), isUsd(t) ? "USD" : "PHP",
       cell(acctOf(t.acct).n), t.type === "transfer" ? cell(acctOf(t.to).n) : "", t.type === "transfer" ? cell(name(receiver(t))) : "", cell(t.note), cell(name(t.by))
     ].join(","));
   }
@@ -1155,10 +1163,33 @@ function applyFor() {
   setType(sheet.dataset.type); // shows or hides Repeat every month
   $("#f-for").querySelectorAll("[data-who]").forEach(b => b.setAttribute("aria-checked", String(b.dataset.who === forWho)));
 }
+// The Account list: whoever the entry is for's accounts, plus "Deel ($)" for income if they have Deel.
+function fillAcct() {
+  const me = forWho || meNow(), sel = $("#f-acct"), keep = sel.value;
+  const deel = sheet.dataset.type === "income" && sheet.dataset.mode !== "rec" && hasAccount(me, DEEL);
+  sel.innerHTML = ACCOUNTS.filter(a => hasAccount(me, a)).map(a => `<option value="${a.k}">${esc(a.n)}</option>`).join("")
+    + (deel ? `<option value="deel">Deel ($)</option>` : "");
+  if ([...sel.options].some(o => o.value === keep)) sel.value = keep;
+}
+// Deel income is typed in dollars: the amount box shows "$" instead of "₱", and it can't repeat monthly
+// (repeating bills are in pesos).
+const usdChosen = () => $("#f-acct").value === "deel";
+function syncCurrency() {
+  const usdOn = usdChosen();
+  $(".amount-field > span").textContent = usdOn ? "$" : "₱";
+  $("#f-amount").setAttribute("aria-label", usdOn ? "Amount in US dollars" : "Amount in pesos");
+  sheet.classList.toggle("usd", usdOn);
+  const hide = !repeatAllowed(sheet.dataset.type);
+  $("#repeatWrap").hidden = hide;
+  if (hide) $("#f-repeat").checked = false;
+  syncRepeat();
+}
+const repeatAllowed = type => !(type === "transfer" || S.editing || S.editingRec || S.demo || forOther() || usdChosen());
 function fillAccounts() {
   const me = forWho || meNow(); // the accounts of whoever the entry is for
   const opts = ACCOUNTS.filter(a => hasAccount(me, a)).map(a => `<option value="${a.k}">${esc(a.n)}</option>`).join("");
-  $("#f-acct").innerHTML = opts; $("#f-to").innerHTML = opts;
+  $("#f-to").innerHTML = opts;
+  fillAcct();
   $("#f-day").innerHTML = Array.from({ length: 31 }, (_, i) => `<option value="${i + 1}">${repeatLabel({ day: i + 1 })}</option>`).join("");
   $("#f-week").innerHTML = WEEKS.map((w, i) => `<option value="${i + 1}">${w[0].toUpperCase() + w.slice(1)}</option>`).join("");
   $("#f-weekday").innerHTML = [1, 2, 3, 4, 5, 6, 0].map(d => `<option value="${d}">${WEEKDAYS[d]}</option>`).join(""); // Monday first
@@ -1215,9 +1246,8 @@ function setType(type, sel) {
   const tr = type === "transfer";
   $("#catWrap").hidden = tr; $("#toWrap").hidden = !tr;
   $("#acctLabel").textContent = tr ? "From account" : "Account";
-  $("#repeatWrap").hidden = tr || !!S.editing || !!S.editingRec || S.demo || forOther();
-  if ($("#repeatWrap").hidden) $("#f-repeat").checked = false;
-  syncRepeat();
+  fillAcct(); // Deel ($) is only offered for income
+  syncCurrency(); // also shows or hides Repeat every month
   const keepCat = sel === undefined && sheet.querySelector('input[name="cat"]:checked'); // re-run (For changed): keep the category
   if (!tr) renderCats(type, keepCat ? keepCat.value : sel); // no default: a new entry starts with "Choose a category"
 }
@@ -1243,6 +1273,7 @@ function openSheet(t) {
   $("#f-date").value = t ? t.date : defDate;
   fillAccounts();
   pickAccount($("#f-acct"), t ? t.acct : "cash");
+  syncCurrency();
   toSender = t ? t.by : meNow();
   toWho = t && t.toWho ? t.toWho : toSender;
   renderToWho();
@@ -1542,6 +1573,7 @@ sheet.addEventListener("change", e => {
   if (e.target.name === "type") setType(e.target.value);
   else if (e.target.name === "cat") { updateCatToggle(); showCats(false); $("#f-err").textContent = ""; }
   else if (e.target.id === "f-repeat" || e.target.id === "f-date") syncRepeat();
+  else if (e.target.id === "f-acct") syncCurrency();
   else if (e.target.id === "f-rep-by") syncRepBy();
 });
 sheet.addEventListener("submit", async e => {
@@ -1574,6 +1606,8 @@ sheet.addEventListener("submit", async e => {
   // How many receipt photos it has; unchanged (or still loading) photos keep the count it had.
   const photos = photoForm.changed ? photoForm.list.length : prev ? prev.photos : 0;
   if (photos) data.photos = photos;
+  if (acct === "deel" && type === "income") data.currency = "USD"; // Deel income, in dollars
+  const money = data.currency ? usd : peso;
   const desc = photos ? $("#f-desc").value.trim().slice(0, 200) : ""; // a description only goes with photos
   if (desc) data.desc = desc;
   if (data.date.slice(0, 7) !== S.month) S.month = data.date.slice(0, 7);
@@ -1582,14 +1616,14 @@ sheet.addEventListener("submit", async e => {
   const repeats = !prev && type !== "transfer" && $("#f-repeat").checked;
   const where = type === "transfer" ? `${acctOf(acct).n} → ${toName(data, toWho)}${acctOf(to).n}` : `${catOf(type, data.cat).n} · ${acctOf(acct).n}`;
   const saved = prev ? "✓ Entry updated"
-    : `✓ ${peso(data.amount)} ${type} added · ${where}${repeats ? ` · repeats on the ${repeatLabel(chosenPattern())}` : ""}`;
+    : `✓ ${money(data.amount)} ${type} added · ${where}${repeats ? ` · repeats on the ${repeatLabel(chosenPattern())}` : ""}`;
   // The check card the saving card turns into, e.g. "Expense added / ₱1 / Other · Cash".
   // Dated after today: it's upcoming, so the card says when it will count ("Expense scheduled · for Wed, 11 Nov").
   const later = isUpcoming(data);
   const when = later ? `for ${new Date(date + "T00:00:00").toLocaleDateString("en-PH", { weekday: "short", day: "numeric", month: "short" })} · ` : "";
   const done = {
     title: prev ? (later ? "Upcoming entry updated" : "Entry updated") : `${type[0].toUpperCase()}${type.slice(1)} ${later ? "scheduled" : "added"}`,
-    amount: peso(data.amount), cls: type === "income" ? "inc" : type === "expense" ? "exp" : "",
+    amount: money(data.amount), cls: type === "income" ? "inc" : type === "expense" ? "exp" : "",
     sub: when + where + (repeats ? ` · repeats on the ${repeatLabel(chosenPattern())}` : ""), text: later ? saved.replace(" added", " scheduled") : saved
   };
   if (S.demo) {

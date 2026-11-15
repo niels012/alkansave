@@ -38,7 +38,7 @@ service cloud.firestore {
     }
 
     function validTx(d) {
-      return d.keys().hasOnly(['type', 'amountCents', 'date', 'cat', 'acct', 'to', 'note', 'by', 'createdAt', 'updatedAt', 'updatedBy', 'rec', 'order', 'photos', 'desc', 'toWho', 'loggedBy'])
+      return d.keys().hasOnly(['type', 'amountCents', 'date', 'cat', 'acct', 'to', 'note', 'by', 'createdAt', 'updatedAt', 'updatedBy', 'rec', 'order', 'photos', 'desc', 'toWho', 'loggedBy', 'currency'])
         && (d.get('rec', null) == null || shortStr(d.rec, 60))
         && (d.get('order', null) == null || d.order is number)
         && (d.get('photos', 0) is int && d.get('photos', 0) >= 0 && d.get('photos', 0) <= 3)
@@ -46,6 +46,8 @@ service cloud.firestore {
         // A transfer sent to another family member names them (their user id); only transfers can.
         && (d.get('toWho', null) == null || (d.type == 'transfer' && shortStr(d.toWho, 128)))
         && (d.get('loggedBy', null) == null || shortStr(d.loggedBy, 128))
+        // Deel income is the only entry in dollars; every other entry is in pesos (no "currency").
+        && (d.get('currency', null) == null || (d.currency == 'USD' && d.type == 'income' && d.acct == 'deel'))
         && d.keys().hasAll(['type', 'amountCents', 'date', 'cat', 'acct', 'by', 'createdAt'])
         && d.type in ['expense', 'income', 'transfer']
         && d.amountCents is int && d.amountCents > 0 && d.amountCents <= 100000000000
