@@ -622,6 +622,8 @@ button.rec[disabled] { cursor: default; color: inherit; }
 .seg-slice.dim { opacity: .3; }
 .cat-tx { display: grid; background: var(--sunk); border-radius: 12px; padding: 4px 12px; margin: -2px 0 4px; }
 .ctx { display: grid; grid-template-columns: 30px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 7px 0; border-top: 1px solid color-mix(in srgb, var(--line) 70%, transparent); }
+button.ctx { width: 100%; border-left: 0; border-right: 0; border-bottom: 0; background: none; font: inherit; color: inherit; text-align: left; cursor: pointer; border-radius: 0; }
+button.ctx:hover, button.ctx:focus-visible { background: color-mix(in srgb, var(--sunk) 60%, transparent); }
 .ctx:first-child { border-top: 0; }
 .ctx-d { display: grid; justify-items: center; line-height: 1.1; font-size: 10.5px; color: var(--muted); font-weight: 600; }
 .ctx-d b { font-size: 15px; color: var(--ink); }

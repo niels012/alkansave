@@ -750,9 +750,10 @@ function viewStats() {
   const entries = k => mt.filter(t => t.cat === k).sort(newestDayFirst).map(t => {
     const d = new Date(t.date + "T00:00:00");
     const acct = t.type === "transfer" ? `${acctOf(t.acct).n} → ${toName(t)}${acctOf(t.to).n}` : acctOf(t.acct).n;
-    return `<div class="ctx"><span class="ctx-d"><b>${d.getDate()}</b>${d.toLocaleDateString("en-PH", { weekday: "short" })}</span>
+    // Tapping one opens it in the Trans list (see "go-entry").
+    return `<button type="button" class="ctx" data-act="go-entry" data-id="${esc(t.id)}"><span class="ctx-d"><b>${d.getDate()}</b>${d.toLocaleDateString("en-PH", { weekday: "short" })}</span>
       <span class="ctx-m"><span class="t">${esc(t.note || catOf(t.type, t.cat).n)}</span><span class="s">${esc(acct)} · ${esc(who(t.by).name)}</span></span>
-      <span class="num ${type === "income" ? "inc" : "exp"}">${peso(t.amount)}</span></div>`;
+      <span class="num ${type === "income" ? "inc" : "exp"}">${peso(t.amount)}</span></button>`;
   }).join("");
   const legend = parts.map(p => `<button type="button" class="lg${open === p.k ? " open" : ""}" data-act="stat-cat" data-cat="${esc(p.k)}" aria-expanded="${open === p.k}" style="--c:${p.c};--ci:${inkOn(p.c)}">
       <span class="pct num">${Math.round(p.v / total * 100)}%</span><span class="n">${p.e} ${esc(p.n)}</span><span class="num">${peso(p.v)}</span>
@@ -2278,6 +2279,18 @@ document.addEventListener("click", e => {
   else if (act === "search-open") { S.searchOpen = true; animate("search"); draw(); const q = $("#q"); if (q) q.focus(); }
   else if (act === "search-close") { const q = $("#q"); if (q) q.blur(); S.q = ""; S.searchOpen = false; draw(); }
   else if (act === "scope") { S.f.scope = a.dataset.scope; draw(); }
+  // An entry under a category on Stats: switch to the Trans tab (Daily, its month, no search or filters hiding it),
+  // scroll to it and light it up, like after saving.
+  else if (act === "go-entry") {
+    const t = txAll().find(x => x.id === a.dataset.id);
+    if (!t) return;
+    S.view = "daily"; S.month = t.date.slice(0, 7); S.q = ""; S.searchOpen = false; S.showFilters = false;
+    S.f = { type: "", cat: "", who: "", acct: "", scope: "month" };
+    try { localStorage.setItem("alkansave.view", S.view); } catch {}
+    animate("view"); draw();
+    window.scrollTo(0, 0);
+    requestAnimationFrame(() => showEntry(t.id));
+  }
   else if (act === "clear-filters") { S.q = ""; S.f = { type: "", cat: "", who: "", acct: "", scope: "month" }; draw(); }
   else if (act === "rem-on") turnOnReminders();
   else if (act === "me") {
