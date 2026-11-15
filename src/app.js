@@ -1744,20 +1744,20 @@ function askInterest() {
 }
 // Saves the interest as a new income entry, with the same saving card and green check as the entry form.
 // ---------- Tithing suggestion ----------
-// A switch on Accounts (kept on this phone, off at first). When on, saving a new Salary income (in pesos) is
-// followed by "Set aside 10% for tithing?": Add saves a Donation expense noted "Tithing" (same account, date and
-// person as the salary), Edit opens it in the form first, Not now does nothing.
-const TITHE_KEY = "alkansave.suggestTithe", TITHE_RATE = 0.1;
+// A switch on Accounts (kept on this phone, off at first). When on, saving a new Salary, Business or 13th Month &
+// Bonus income (in pesos) is followed by "Set aside 10% for tithing?": Add saves a Donation expense noted "Tithing"
+// (same account, date and person as the income), Edit opens it in the form first, Not now does nothing.
+const TITHE_KEY = "alkansave.suggestTithe", TITHE_RATE = 0.1, TITHE_CATS = ["salary", "business", "bonus"];
 const titheOn = () => { try { return localStorage.getItem(TITHE_KEY) === "1"; } catch { return false; } };
 const setTitheOn = on => { try { localStorage.setItem(TITHE_KEY, on ? "1" : "0"); } catch {} flash(on ? "Tithing suggestions are on for this phone." : "Tithing suggestions are off.", 3000); };
 function suggestSection() {
   if (!(S.demo || S.canWrite)) return "";
   return `<section class="card"><span class="label">Suggestions</span>
-    <label class="switch-row"><span><b>Suggest tithing after salary</b><span class="meta">After you log a Salary income, offer to set aside 10% as a Donation.</span></span>
-      <input type="checkbox" class="switch" data-pref="tithe"${titheOn() ? " checked" : ""} aria-label="Suggest tithing after salary"></label></section>`;
+    <label class="switch-row"><span><b>Suggest tithing after income</b><span class="meta">After you log Salary, Business or 13th Month &amp; Bonus income, offer to set aside 10% as a Donation.</span></span>
+      <input type="checkbox" class="switch" data-pref="tithe"${titheOn() ? " checked" : ""} aria-label="Suggest tithing after income"></label></section>`;
 }
 function maybeSuggestTithe(income) {
-  if (!titheOn() || income.type !== "income" || income.cat !== "salary" || isUsd(income)) return;
+  if (!titheOn() || income.type !== "income" || !TITHE_CATS.includes(income.cat) || isUsd(income)) return;
   const amount = round2(income.amount * TITHE_RATE);
   if (!(amount > 0)) return;
   const tithe = {
@@ -1770,7 +1770,7 @@ function maybeSuggestTithe(income) {
   el.innerHTML = `<div class="ask-card" role="dialog" aria-modal="true" aria-labelledby="titheTitle">
       <h2 id="titheTitle"><span class="ico" style="--c:${c.c}" aria-hidden="true">${c.e}</span>Set aside 10% for tithing?</h2>
       <p><b class="num">${peso(amount)}</b> · ${esc(c.n)} · ${esc(a.n)}${income.by !== meNow() ? ` · for ${esc(firstName(income.by))}` : ""}</p>
-      <p>10% of the ${peso(income.amount)} salary, noted “Tithing”.</p>
+      <p>10% of the ${peso(income.amount)} from ${esc(catOf("income", income.cat).n)}, noted “Tithing”.</p>
       <div class="actions"><button type="button" class="btn" data-tithe="skip">Not now</button><button type="button" class="btn" data-tithe="edit">Edit</button><button type="button" class="btn primary" data-tithe="add">Add</button></div>
     </div>`;
   const close = () => { if (!el.isConnected) return; el.remove(); unlockScroll(); document.removeEventListener("keydown", onKey, true); };
