@@ -676,3 +676,19 @@ button.ctx:hover, button.ctx:focus-visible { background: color-mix(in srgb, var(
 .switch:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { .switch, .switch::after { transition: none; } }
 .ask-card h2 .ico:not(.logo) { display: grid; place-items: center; font-size: 16px; background: color-mix(in srgb, var(--c) 18%, var(--surface)); }
+
+/* Owed to you (Accounts): who still owes money, with Paid back; repaid borrowers under Settled. */
+.owed .lc-head .num { font-size: 15px; }
+.loan { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
+.loan:not(:has(.av)) { grid-template-columns: minmax(0, 1fr) auto; }
+.loan-n { display: grid; min-width: 0; }
+.loan-n b { font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.loan-n .meta { margin: 0; font-size: 12px; }
+.loan-v { display: grid; justify-items: end; gap: 4px; }
+.loan-v > b { font-size: 15px; }
+.loan-acts { display: flex; align-items: center; gap: 10px; }
+.loan-acts .btn { padding: 5px 12px; font-size: 13px; }
+.loan-acts .link { font-size: 12px; color: var(--muted); }
+.settled { margin-top: 6px; }
+.settled summary { cursor: pointer; font-size: 13px; font-weight: 600; color: var(--muted); padding: 6px 0; }
+.loan.done { opacity: .75; }

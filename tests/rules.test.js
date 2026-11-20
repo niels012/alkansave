@@ -268,6 +268,14 @@ test("editors can attach up to 3 photos to an entry; viewers and outsiders canno
   await assertFails(setDoc(doc(as("ben"), "households", HID, "config", "e1"), { images: [jpg], updatedAt: 1, updatedBy: "ben" }));
 });
 
+test("lending, repayments and write-offs can name the borrower (briefly)", async () => {
+  const add = (id, extra) => setDoc(doc(as("ben"), "households", HID, "tx", id), tx("ben", extra));
+  await assertSucceeds(add("l1", { type: "transfer", cat: "transfer", acct: "gcash", to: "lent", party: "Juan" }));
+  await assertSucceeds(add("l2", { type: "transfer", cat: "transfer", acct: "lent", to: "gcash", party: "Juan" }));
+  await assertSucceeds(add("l3", { type: "expense", cat: "other", acct: "lent", party: "Juan" }));
+  await assertFails(add("l4", { type: "transfer", cat: "transfer", acct: "gcash", to: "lent", party: "x".repeat(61) }));
+});
+
 test("Deel income can be in dollars; nothing else can", async () => {
   const add = (id, extra) => setDoc(doc(as("ben"), "households", HID, "tx", id), tx("ben", extra));
   await assertSucceeds(add("u1", { type: "income", cat: "salary", acct: "deel", currency: "USD" }));

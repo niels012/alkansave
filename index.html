@@ -92,6 +92,11 @@
       <div class="to-who" id="f-towho" role="radiogroup" aria-label="Who gets the money" hidden></div>
       <select id="f-to" aria-label="To account"></select>
     </div>
+    <div class="field" id="partyWrap" hidden><label for="f-party" id="partyLabel">Borrower</label>
+      <input id="f-party" maxlength="60" autocomplete="off" list="partyList" placeholder="Who borrowed it, e.g. Juan">
+      <datalist id="partyList"></datalist>
+      <select id="f-party-sel" aria-label="Who is paying you back" hidden></select>
+    </div>
     <div class="field" id="catWrap"><span>Category</span>
       <button type="button" class="cat-toggle" id="catToggle" data-act="cat-toggle" aria-expanded="false" aria-controls="f-cats"></button>
       <div class="cats" id="f-cats" hidden></div>

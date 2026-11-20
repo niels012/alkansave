@@ -50,6 +50,8 @@ const ACCOUNTS = [
   { k: "maribank", n: "MariBank", logo: "/icons/banks/maribank.webp" },
   { k: "psbank", n: "PSBank", logo: "/icons/banks/psbank.webp", ownerOnly: true },
   { k: "spaylater", n: "SPayLater", logo: "/icons/banks/spaylater.webp", ownerOnly: true, owed: true },
+  // Money you've lent out (see "Lent money"): still yours, so an asset, but not on hand. Only transfers use it.
+  { k: "lent", n: "Lent money", e: "🤝", c: "#8B5CF6", lent: true },
   { k: "card", n: "Atome", logo: "/icons/banks/card.webp", shared: true, owed: true }
 ];
 const isOwed = k => !!(ACCOUNTS.find(a => a.k === k) || {}).owed;
@@ -145,6 +147,7 @@ function clean(id, d) {
     createdAt: Number(d.createdAt) || 0, updatedAt: Number(d.updatedAt) || 0,
     updatedBy: typeof d.updatedBy === "string" ? d.updatedBy : null,
     toWho: d.type === "transfer" && typeof d.toWho === "string" && d.toWho ? d.toWho : null, // sent to another family member
+    party: typeof d.party === "string" && d.party.trim() ? d.party.trim().slice(0, 60) : null, // who borrowed (Lent money)
     loggedBy: typeof d.loggedBy === "string" && d.loggedBy ? d.loggedBy : null, // entered by someone else for "by"
     order: Number.isFinite(d.order) ? d.order : null,
     currency: d.currency === "USD" ? "USD" : null, // Deel income is in dollars; everything else is pesos
@@ -426,7 +429,7 @@ function balanceBreakdown() {
   const me = S.demo ? "demo-a" : S.meId || "local";
   const r2 = b => Math.round(b * 100) / 100;
   const cash = r2(flow(countedTx(), "cash"));
-  const mine = [...PERSONAL_ACCOUNTS.filter(a => hasAccount(me, a) && !a.owed), ...OLD_ACCOUNTS] // not SPayLater: it's owed
+  const mine = [...PERSONAL_ACCOUNTS.filter(a => hasAccount(me, a) && !a.owed && !a.lent), ...OLD_ACCOUNTS] // not SPayLater (owed) or Lent money (not on hand)
     .map(a => ({ a, b: r2(personFlow(countedTx(), me, a.k)) })) // includes money your partner sent you
     .filter(r => r.b);
   const row = (a, b, tag) => `<div class="bb"><span class="nm">${acctIcon(a)}<span class="bb-n">${esc(a.n)}${tag ? `<span class="bb-tag">${tag}</span>` : ""}</span></span><b class="num ${b < 0 ? "exp" : "inc"}">${peso(b)}</b></div>`;
@@ -461,7 +464,7 @@ const CHECK_ICON = `<svg class="ok" viewBox="0 0 24 24" aria-hidden="true"><path
 const CLIP_ICON = `<svg class="tx-clip" viewBox="0 0 24 24" role="img" aria-label="Has a photo"><path d="M20 11.5l-7.8 7.8a5 5 0 0 1-7.1-7.1l8.5-8.5a3.3 3.3 0 0 1 4.7 4.7l-8.5 8.5a1.7 1.7 0 0 1-2.4-2.4l7.8-7.8"/></svg>`;
 function txRow(t) {
   const c = catOf(t.type, t.cat);
-  const acct = t.type === "transfer" ? `${acctOf(t.acct).n} → ${toName(t)}${acctOf(t.to).n}` : acctOf(t.acct).n;
+  const acct = acctLabel(t);
   const cls = t.type === "income" ? "inc" : t.type === "expense" ? "exp" : "";
   const ro = !(S.demo || S.canWrite);
   const id = esc(t.id);
@@ -517,7 +520,7 @@ const filtering = () => !!S.q.trim() || filterCount() > 0;
 
 function filteredTx() {
   const F = S.f, q = S.q.trim().toLowerCase();
-  const text = t => [t.note, catOf(t.type, t.cat).n, acctOf(t.acct).n, t.to ? acctOf(t.to).n : "", who(t.by).name, String(t.amount), amountOf(t), t.date]
+  const text = t => [t.note, t.party || "", catOf(t.type, t.cat).n, acctOf(t.acct).n, t.to ? acctOf(t.to).n : "", who(t.by).name, String(t.amount), amountOf(t), t.date]
     .join(" ").toLowerCase();
   return (F.scope === "all" ? txAll() : monthTx()).filter(t =>
     (!F.type || t.type === F.type) && (!F.cat || t.cat === F.cat) && (!F.who || t.by === F.who)
@@ -749,7 +752,7 @@ function viewStats() {
   // Each category opens to list its entries this month (newest first).
   const entries = k => mt.filter(t => t.cat === k).sort(newestDayFirst).map(t => {
     const d = new Date(t.date + "T00:00:00");
-    const acct = t.type === "transfer" ? `${acctOf(t.acct).n} → ${toName(t)}${acctOf(t.to).n}` : acctOf(t.acct).n;
+    const acct = acctLabel(t);
     // Tapping one opens it in the Trans list (see "go-entry").
     return `<button type="button" class="ctx" data-act="go-entry" data-id="${esc(t.id)}"><span class="ctx-d"><b>${d.getDate()}</b>${d.toLocaleDateString("en-PH", { weekday: "short" })}</span>
       <span class="ctx-m"><span class="t">${esc(t.note || catOf(t.type, t.cat).n)}</span><span class="s">${esc(acct)} · ${esc(who(t.by).name)}</span></span>
@@ -994,6 +997,7 @@ function viewAccounts() {
 
   return `<section class="card"><div class="acct-sum"><div><span>Assets</span><b class="num inc">${peso(assets)}</b></div><div><span>Owed</span><b class="num exp">${peso(-liab)}</b></div><div><span>Net</span><b class="num">${peso(assets + liab)}</b></div></div></section>
     <section class="card"><span class="label">Balances</span>${table}</section>
+    ${owedSection()}
     ${txAll().length ? netWorthChart() : ""}`
     + suggestSection() + startSection() + familySection() + exportSection() + installSection();
 }
@@ -1026,7 +1030,7 @@ function startSection() {
   // Only your own personal accounts here; everyone else sets (and sees) theirs on their own phone.
   const me = S.meId || "local";
   const mine = `<div class="acct-owner">${avatar(me)}<span class="nm">Your accounts</span></div>`
-    + PERSONAL_ACCOUNTS.filter(a => hasAccount(me, a)).map(a => row(a, startsOf(me), true, "data-start")).join("")
+    + PERSONAL_ACCOUNTS.filter(a => hasAccount(me, a) && !a.lent).map(a => row(a, startsOf(me), true, "data-start")).join("")
     + (!hasAccount(me, DEEL) ? "" : `<div class="acct">${acctIcon(DEEL)}<div><div class="nm">Deel</div><div class="sub">Your balance now, in US dollars</div></div><label class="limit"><span>$</span><input data-start="deel" inputmode="decimal" value="${grouped(startsOf(me).deel)}" placeholder="0" aria-label="Deel balance in US dollars"></label></div>`);
   return `<section class="card">${head}<div class="fold-body" data-fold="starts">
     <p class="meta">What was already in each account before you started logging. The shared Cash and Atome are for the whole family; your other accounts are just yours. For Atome and SPayLater, enter what you owed.</p>${shared}${mine}</div></section>`;
@@ -1045,11 +1049,11 @@ function downloadCsv(scope) {
   // Quote text, and stop spreadsheet apps from treating a note like "=SUM(...)" as a formula.
   const cell = v => { let s = String(v ?? ""); if (/^[=+\-@\t\r]/.test(s)) s = "'" + s; return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
   const name = id => (id && S.profiles[id] && S.profiles[id].name) || who(id).name;
-  const lines = [["Date", "Type", "Category", "Amount", "Currency", "Account", "To account", "To person", "Note", "Logged by"].join(",")];
+  const lines = [["Date", "Type", "Category", "Amount", "Currency", "Account", "To account", "To person", "Borrower", "Note", "Logged by"].join(",")];
   for (const t of rows) {
     lines.push([
       t.date, t.type[0].toUpperCase() + t.type.slice(1), cell(catOf(t.type, t.cat).n), t.amount.toFixed(2), isUsd(t) ? "USD" : "PHP",
-      cell(acctOf(t.acct).n), t.type === "transfer" ? cell(acctOf(t.to).n) : "", t.type === "transfer" ? cell(name(receiver(t))) : "", cell(t.note), cell(name(t.by))
+      cell(acctOf(t.acct).n), t.type === "transfer" ? cell(acctOf(t.to).n) : "", t.type === "transfer" ? cell(name(receiver(t))) : "", cell(t.party || ""), cell(t.note), cell(name(t.by))
     ].join(","));
   }
   const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
@@ -1139,8 +1143,9 @@ function renderToWho() {
 }
 function fillTo() {
   const sel = $("#f-to"), keep = sel.value, other = toWho !== toSender;
-  sel.innerHTML = ACCOUNTS.filter(a => hasAccount(toWho, a) && !(other && a.shared)).map(a => `<option value="${a.k}">${esc(a.n)}</option>`).join("");
+  sel.innerHTML = ACCOUNTS.filter(a => hasAccount(toWho, a) && !(other && (a.shared || a.lent))).map(a => `<option value="${a.k}">${esc(a.n)}</option>`).join("");
   if ([...sel.options].some(o => o.value === keep)) sel.value = keep;
+  if (sheet.dataset.type) syncParty();
 }
 // ---------- Logging an entry for a family member ----------
 // A new entry's For picker: Me, or another family member (e.g. Shaira paid from her GCash and asked you to log it).
@@ -1168,7 +1173,7 @@ function applyFor() {
 function fillAcct() {
   const me = forWho || meNow(), sel = $("#f-acct"), keep = sel.value;
   const deel = sheet.dataset.type === "income" && sheet.dataset.mode !== "rec" && hasAccount(me, DEEL);
-  sel.innerHTML = ACCOUNTS.filter(a => hasAccount(me, a)).map(a => `<option value="${a.k}">${esc(a.n)}</option>`).join("")
+  sel.innerHTML = ACCOUNTS.filter(a => hasAccount(me, a) && (!a.lent || sheet.dataset.type === "transfer")).map(a => `<option value="${a.k}">${esc(a.n)}</option>`).join("")
     + (deel ? `<option value="deel">Deel ($)</option>` : "");
   if ([...sel.options].some(o => o.value === keep)) sel.value = keep;
 }
@@ -1180,6 +1185,7 @@ function syncCurrency() {
   $(".amount-field > span").textContent = usdOn ? "$" : "₱";
   $("#f-amount").setAttribute("aria-label", usdOn ? "Amount in US dollars" : "Amount in pesos");
   sheet.classList.toggle("usd", usdOn);
+  syncParty();
   const hide = !repeatAllowed(sheet.dataset.type);
   $("#repeatWrap").hidden = hide;
   if (hide) $("#f-repeat").checked = false;
@@ -1279,6 +1285,10 @@ function openSheet(t) {
   toWho = t && t.toWho ? t.toWho : toSender;
   renderToWho();
   pickAccount($("#f-to"), t && t.to ? t.to : "maribank");
+  $("#f-party").value = t && t.party ? t.party : "";
+  Object.assign($("#f-party-sel").dataset, { want: t && t.party ? partyKey(t.party) : "", wantName: t && t.party ? t.party : "" });
+  $("#f-party-sel").value = "";
+  syncParty();
   $("#f-note").value = t ? t.note : "";
   const meta = $("#f-meta");
   if (t) { meta.hidden = false; meta.textContent = `Logged by ${t.loggedBy && t.loggedBy !== t.by ? `${who(t.loggedBy).name} for ${who(t.by).name}` : who(t.by).name}${t.createdAt ? " · " + ago(t.createdAt) : ""}${t.updatedAt && t.updatedBy ? ` · last edited by ${who(t.updatedBy).name}` : ""}`; }
@@ -1575,6 +1585,7 @@ sheet.addEventListener("change", e => {
   else if (e.target.name === "cat") { updateCatToggle(); showCats(false); $("#f-err").textContent = ""; }
   else if (e.target.id === "f-repeat" || e.target.id === "f-date") syncRepeat();
   else if (e.target.id === "f-acct") syncCurrency();
+  else if (e.target.id === "f-to") syncParty();
   else if (e.target.id === "f-rep-by") syncRepBy();
 });
 sheet.addEventListener("submit", async e => {
@@ -1590,6 +1601,8 @@ sheet.addEventListener("submit", async e => {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { err.textContent = "Pick a date for this entry."; return; }
   const toOther = type === "transfer" && toWho !== toSender; // sent to another family member
   if (type === "transfer" && acct === to && !toOther) { err.textContent = "Choose two different accounts for a transfer."; return; }
+  const lentTo = chosenParty(Math.round(amount * 100) / 100, S.editing ? txAll().find(t => t.id === S.editing) : null);
+  if (lentTo.err) { err.textContent = lentTo.err; if (lentTo.focus) $(lentTo.focus).focus(); return; }
   if (type !== "transfer" && !catEl) { err.textContent = "Pick a category."; showCats(true); return; }
   const prev = S.editing ? txAll().find(t => t.id === S.editing) : null;
   const me = S.demo ? "demo-a" : S.meId;
@@ -1598,6 +1611,7 @@ sheet.addEventListener("submit", async e => {
     cat: type === "transfer" ? "transfer" : catEl.value, acct, to: type === "transfer" ? to : null,
     note: $("#f-note").value.trim().slice(0, 120),
     ...(toOther ? { toWho } : {}),
+    ...(lentTo.party ? { party: lentTo.party } : {}),
     // Yours, or (new, For someone else) theirs, noting that you logged it.
     by: prev ? prev.by : forWho, ...(!prev && forOther() ? { loggedBy: me } : prev && prev.loggedBy ? { loggedBy: prev.loggedBy } : {}),
     createdAt: prev ? prev.createdAt : Date.now(),
@@ -1615,7 +1629,7 @@ sheet.addEventListener("submit", async e => {
   if (S.view === "calendar") S.selDay = data.date;
   // Confirmation banner, e.g. "✓ ₱145 expense added · Groceries · Cash".
   const repeats = !prev && type !== "transfer" && $("#f-repeat").checked;
-  const where = type === "transfer" ? `${acctOf(acct).n} → ${toName(data, toWho)}${acctOf(to).n}` : `${catOf(type, data.cat).n} · ${acctOf(acct).n}`;
+  const where = type === "transfer" ? acctLabel(data) : `${catOf(type, data.cat).n} · ${acctOf(acct).n}`;
   const saved = prev ? "✓ Entry updated"
     : `✓ ${money(data.amount)} ${type} added · ${where}${repeats ? ` · repeats on the ${repeatLabel(chosenPattern())}` : ""}`;
   // The check card the saving card turns into, e.g. "Expense added / ₱1 / Other · Cash".
@@ -1743,6 +1757,142 @@ function askInterest() {
   input.focus(); // still inside the tap, so phones bring up the number keyboard
 }
 // Saves the interest as a new income entry, with the same saving card and green check as the entry form.
+// ---------- Lent money ----------
+// Lending is a transfer into your "Lent money" account with the borrower's name ("party"); being paid back is a
+// transfer out of it back into one of your accounts, for that borrower. Neither is income or spending. If a loan
+// won't come back, "Won't be paid back" turns what's left into an expense (Other) out of Lent money.
+// A person's loans: what each borrower still owes them (names match regardless of capitals).
+const partyKey = s => String(s || "").trim().toLowerCase();
+function loansOf(owner) {
+  const m = new Map();
+  const at = (t, v) => {
+    const k = partyKey(t.party);
+    let r = m.get(k);
+    if (!r) m.set(k, r = { key: k, name: t.party, owed: 0, lastLent: "", last: "" });
+    r.owed += v;
+    if (t.date >= r.last) { r.last = t.date; r.name = t.party; } // the latest spelling
+    return r;
+  };
+  for (const t of countedTx()) {
+    if (!t.party) continue;
+    if (t.type === "transfer" && t.to === "lent" && receiver(t) === owner) { const r = at(t, t.amount); if (t.date > r.lastLent) r.lastLent = t.date; }
+    else if (t.by === owner && t.acct === "lent" && (t.type === "transfer" || t.type === "expense")) at(t, -t.amount);
+  }
+  return [...m.values()].map(r => ({ ...r, owed: round2(r.owed) }));
+}
+const openLoans = owner => loansOf(owner).filter(l => l.owed > 0.004).sort((a, b) => b.owed - a.owed);
+// The Borrower field: a name to type when lending (suggesting names used before), or a pick of who still owes you
+// when you're being paid back. Shown only for transfers into or out of your own Lent money.
+function syncParty() {
+  const tr = sheet.dataset.type === "transfer", from = $("#f-acct").value, to = $("#f-to").value;
+  const lending = tr && to === "lent" && from !== "lent" && toWho === toSender;
+  const repaying = tr && from === "lent";
+  $("#partyWrap").hidden = !(lending || repaying);
+  $("#f-party").hidden = !lending; $("#f-party-sel").hidden = !repaying;
+  const label = $("#partyLabel");
+  label.textContent = repaying ? "Paying you back" : "Borrower";
+  label.htmlFor = repaying ? "f-party-sel" : "f-party";
+  if (lending) $("#partyList").innerHTML = loansOf(toSender).map(l => `<option value="${esc(l.name)}">`).join("");
+  if (repaying) {
+    const sel = $("#f-party-sel"), keep = sel.value || sel.dataset.want || "";
+    const list = openLoans(toSender);
+    sel.innerHTML = list.length ? list.map(l => `<option value="${esc(l.key)}">${esc(l.name)} · owes ${esc(peso(l.owed))}</option>`).join("")
+      : `<option value="" disabled selected>Nobody owes you money right now</option>`;
+    // Editing a repayment that settled a loan: keep its borrower in the list.
+    if (keep && ![...sel.options].some(o => o.value === keep) && sel.dataset.wantName) sel.add(new Option(sel.dataset.wantName, keep));
+    if ([...sel.options].some(o => o.value === keep)) sel.value = keep;
+  }
+}
+// When saving a transfer: the borrower it's for, or an error to show.
+function chosenParty(amount, prev) {
+  if ($("#partyWrap").hidden) return { party: null };
+  if (!$("#f-party").hidden) {
+    const name = $("#f-party").value.trim().slice(0, 60);
+    return name ? { party: name } : { err: "Enter who borrowed it.", focus: "#f-party" };
+  }
+  const key = $("#f-party-sel").value;
+  if (!key) return { err: "Pick who's paying you back." };
+  const loan = loansOf(toSender).find(l => l.key === key);
+  const name = loan ? loan.name : $("#f-party-sel").dataset.wantName;
+  // Editing a repayment: its own amount isn't owed any more, so add it back before comparing.
+  const owed = (loan ? loan.owed : 0) + (prev && prev.acct === "lent" && partyKey(prev.party) === key ? prev.amount : 0);
+  if (amount > owed + 0.004) return { err: `${name} only owes ${peso(owed)}.` };
+  return { party: name };
+}
+// The account line of an entry in the list: lending and repayments name the borrower.
+function acctLabel(t) {
+  if (t.type === "transfer" && t.to === "lent" && t.party) return `${acctOf(t.acct).n} → lent to ${t.party}`;
+  if (t.type === "transfer" && t.acct === "lent" && t.party) return `${t.party} paid back → ${acctOf(t.to).n}`;
+  if (t.type === "transfer") return `${acctOf(t.acct).n} → ${toName(t)}${acctOf(t.to).n}`;
+  if (t.acct === "lent" && t.party) return `Lent to ${t.party} · not repaid`;
+  return acctOf(t.acct).n;
+}
+
+// Accounts: who owes the family money. One line per borrower still owing (with the lender's picture when more than
+// one person lends), Paid back to log a repayment, and fully repaid borrowers folded under "Settled".
+function owedSection() {
+  const people = accountOwners(), many = people.length > 1, canWrite = S.demo || S.canWrite;
+  const rows = [], settled = [];
+  for (const o of people) for (const l of loansOf(o)) (l.owed > 0.004 ? rows : settled).push({ ...l, o });
+  if (!rows.length && !settled.length) return "";
+  rows.sort((a, b) => b.owed - a.owed);
+  const day = iso => iso ? new Date(iso + "T00:00:00").toLocaleDateString("en-PH", { month: "short", day: "numeric" }) : "";
+  const total = rows.reduce((s, l) => s + l.owed, 0);
+  const line = l => `<div class="loan">${many ? avatar(l.o, true) : ""}<span class="loan-n"><b>${esc(l.name)}</b><span class="meta">${l.lastLent ? `lent ${esc(day(l.lastLent))}` : ""}${many ? ` · by ${esc(firstName(l.o))}` : ""}</span></span>
+      <span class="loan-v"><b class="num">${peso(l.owed)}</b>${canWrite ? `<span class="loan-acts"><button type="button" class="link" data-act="loan-writeoff" data-o="${esc(l.o)}" data-k="${esc(l.key)}">Won't be paid back</button><button type="button" class="btn" data-act="loan-paid" data-o="${esc(l.o)}" data-k="${esc(l.key)}">Paid back</button></span>` : ""}</span></div>`;
+  return `<section class="card owed"><div class="lc-head"><span class="label">Owed to you</span>${rows.length ? `<b class="num inc">${peso(total)}</b>` : ""}</div>
+    ${rows.length ? rows.map(line).join("") : `<p class="meta">Nobody owes you money right now.</p>`}
+    ${settled.length ? `<details class="settled"><summary>Settled (${settled.length})</summary>${settled.map(l => `<div class="loan done">${many ? avatar(l.o, true) : ""}<span class="loan-n"><b>${esc(l.name)}</b><span class="meta">last ${esc(day(l.last))}</span></span><span class="meta">Paid off</span></div>`).join("")}</details>` : ""}</section>`;
+}
+// Paid back: the entry form, filled in as a repayment from that borrower of everything they still owe.
+function loanPaidBack(owner, key) {
+  const loan = loansOf(owner).find(l => l.key === key);
+  if (!loan) return;
+  openSheet(null);
+  if (owner !== forWho) { forWho = owner; applyFor(); }
+  setType("transfer");
+  pickAccount($("#f-acct"), "lent");
+  const toSel = $("#f-to");
+  if (toSel.value === "lent") toSel.value = [...toSel.options].find(o => o.value !== "lent")?.value || toSel.value;
+  $("#f-party-sel").dataset.want = key;
+  syncCurrency();
+  $("#f-party-sel").value = key;
+  $("#f-amount").value = grouped(loan.owed);
+  $("#f-note").value = "Paid back";
+}
+// Won't be paid back: after a confirm, what's left becomes an expense (Other) out of Lent money, so the loss shows
+// as spending and the borrower moves to Settled.
+function loanWriteOff(owner, key) {
+  const loan = loansOf(owner).find(l => l.key === key);
+  if (!loan || !(loan.owed > 0)) return;
+  const el = document.createElement("div");
+  el.className = "ask";
+  el.innerHTML = `<div class="ask-card" role="dialog" aria-modal="true" aria-labelledby="woTitle">
+      <h2 id="woTitle">${esc(loan.name)} won't pay back?</h2>
+      <p>The <b class="num">${peso(loan.owed)}</b> still owed is added as an expense (Other) today, and ${esc(loan.name)} moves to Settled.</p>
+      <div class="actions"><button type="button" class="btn" data-wo="no">Cancel</button><button type="button" class="btn danger" data-wo="yes">Add as expense</button></div></div>`;
+  const close = () => { if (!el.isConnected) return; el.remove(); unlockScroll(); document.removeEventListener("keydown", onKey, true); };
+  const onKey = e => { if (e.key === "Escape") { e.stopImmediatePropagation(); close(); } };
+  el.addEventListener("click", e => {
+    const b = e.target.closest("[data-wo]");
+    if (!b && e.target !== el) return;
+    close();
+    if (!b || b.dataset.wo !== "yes") return;
+    const data = {
+      type: "expense", amount: loan.owed, date: todayISO(), cat: "other", acct: "lent", to: null, note: `Lent to ${loan.name}, not repaid`, party: loan.name,
+      by: owner, ...(owner !== meNow() ? { loggedBy: meNow() } : {}), createdAt: Date.now(), updatedAt: 0, updatedBy: null
+    };
+    const done = { title: "Expense added", amount: peso(data.amount), cls: "exp", sub: `Other · Lent to ${loan.name}`, text: `✓ ${peso(data.amount)} added as an expense · ${loan.name}` };
+    if (S.demo) { S.demoTx = [...S.demoTx, { id: "demo" + Date.now(), photos: 0, desc: "", order: null, ...data }]; paint(); showLoader("").done(done); return; }
+    const ref = S.db.collection("tx").doc(), loader = showLoader("Adding the expense…");
+    writeWithRetry(() => ref.set(data)).then(() => loader.done(done)).catch(x => { loader.hide(); flash(writeError(x)); });
+  });
+  document.addEventListener("keydown", onKey, true);
+  document.body.append(el);
+  lockScroll();
+  el.querySelector('[data-wo="no"]').focus();
+}
+
 // ---------- Tithing suggestion ----------
 // A switch on Accounts (kept on this phone, off at first). When on, saving a new Salary, Business or 13th Month &
 // Bonus income (in pesos) is followed by "Set aside 10% for tithing?": Add saves a Donation expense noted "Tithing"
@@ -2306,6 +2456,8 @@ document.addEventListener("click", e => {
   else if (act === "attach-cam") { $("#attachMenu").hidden = true; $("#f-cam").click(); }
   else if (act === "attach-pick") { $("#attachMenu").hidden = true; $("#f-file").click(); }
   else if (act === "interest") askInterest();
+  else if (act === "loan-paid") loanPaidBack(a.dataset.o, a.dataset.k);
+  else if (act === "loan-writeoff") loanWriteOff(a.dataset.o, a.dataset.k);
   else if (act === "for-who") { forWho = a.dataset.who; $("#f-err").textContent = ""; applyFor(); }
   else if (act === "to-who") {
     toWho = a.dataset.who;
